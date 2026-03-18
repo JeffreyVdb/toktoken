@@ -1,0 +1,99 @@
+name: Tests
+
+on:
+  push:
+    branches: ['**']
+    tags-ignore: ['v*']
+  pull_request:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-linux:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends universal-ctags valgrind
+
+      - name: Configure (Debug)
+        env:
+          CC: ${{ matrix.compiler }}
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build -j$(nproc) 2>&1 | tee build.log
+
+      - name: Check zero warnings
+        run: |
+          count=$(grep -c "warning:" build.log || true)
+          if [ "$count" -ne 0 ]; then
+            echo "::error::Build produced $count warnings"
+            grep "warning:" build.log
+            exit 1
+          fi
+
+      - name: Unit tests
+        run: ./build/test_unit
+
+      - name: Integration tests
+        run: ./build/test_integration
+
+      - name: E2E tests
+        run: ./build/test_e2e
+
+      - name: Valgrind (unit)
+        if: matrix.compiler == 'gcc'
+        run: |
+          cmake -B build-vg -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTS=ON \
+            -DCMAKE_C_FLAGS="-g -O0"
+          cmake --build build-vg -j$(nproc)
+          valgrind --leak-check=full --error-exitcode=1 \
+            --errors-for-leak-kinds=definite ./build-vg/test_unit
+
+      - name: Valgrind (integration)
+        if: matrix.compiler == 'gcc'
+        run: |
+          valgrind --leak-check=full --error-exitcode=1 \
+            --errors-for-leak-kinds=definite ./build-vg/test_integration
+
+  test-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install universal-ctags
+        run: brew install universal-ctags
+
+      - name: Configure (Debug)
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build -j$(sysctl -n hw.ncpu) 2>&1 | tee build.log
+
+      - name: Check zero warnings
+        run: |
+          count=$(grep -c "warning:" build.log || true)
+          if [ "$count" -ne 0 ]; then
+            echo "::error::Build produced $count warnings"
+            grep "warning:" build.log
+            exit 1
+          fi
+
+      - name: Unit tests
+        run: ./build/test_unit
+
+      - name: Integration tests
+        run: ./build/test_integration
+
+      - name: E2E tests
+        run: ./build/test_e2e

@@ -1,0 +1,75 @@
+name: Language Support Request
+description: Request support for a new programming language or fix an existing parser
+labels: ["language"]
+body:
+  - type: dropdown
+    id: request_type
+    attributes:
+      label: Request type
+      options:
+        - New language (not currently supported)
+        - Fix/improve existing parser
+    validations:
+      required: true
+
+  - type: input
+    id: language
+    attributes:
+      label: Language name
+      placeholder: "Zig"
+    validations:
+      required: true
+
+  - type: input
+    id: extensions
+    attributes:
+      label: File extensions
+      description: Comma-separated list of extensions for this language.
+      placeholder: ".zig"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: parser_type
+    attributes:
+      label: Parser type
+      description: Does Universal Ctags already support this language?
+      options:
+        - Ctags supports it (just needs extension mapping)
+        - Ctags support is partial/poor (may need custom parser)
+        - Ctags does not support it (needs custom parser)
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: symbols
+    attributes:
+      label: Key symbols to extract
+      description: |
+        What constructs should TokToken extract? List the symbol types that matter for code navigation in this language.
+      placeholder: |
+        - Functions (`fn`, `pub fn`)
+        - Structs (`struct`, `union`)
+        - Enums (`enum`)
+        - Constants (`const`)
+        - ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: example
+    attributes:
+      label: Example source file
+      description: A small but representative code sample showing the constructs you want extracted.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Links to language spec, ctags parser status, or anything else relevant.
+    validations:
+      required: false

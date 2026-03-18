@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Application configuration manifest -->
+<application xmlns="http://example.org/app">
+  <!-- Main navigation menu -->
+  <menu id="main-nav" role="navigation">
+    <item id="home" label="Home" />
+    <item id="settings" label="Settings" />
+  </menu>
+
+  <!-- User preferences panel -->
+  <panel name="user-prefs" class="sidebar">
+    <input key="theme" type="select" />
+    <input key="language" type="select" />
+  </panel>
+
+  <script src="js/app.js" />
+  <script src="js/utils.js" />
+  <link href="css/main.css" rel="stylesheet" />
+</application>

@@ -1,0 +1,297 @@
+name: Release
+
+on:
+    push:
+        tags: ['v*']
+
+concurrency:
+    group: release-${{ github.ref }}
+    cancel-in-progress: false
+
+permissions:
+    contents: write
+
+jobs:
+    # ── 1. Validate: tag version must match CMakeLists.txt ──────────────
+    validate:
+        runs-on: ubuntu-latest
+        outputs:
+            version: ${{ steps.check.outputs.version }}
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Validate tag matches source version
+              id: check
+              run: |
+                  cmake_ver=$(sed -n 's/^project(toktoken VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+                  tag_ver="${GITHUB_REF_NAME#v}"
+                  printf 'CMakeLists.txt version: %s\nTag version:            %s\n' "$cmake_ver" "$tag_ver"
+                  if [ -z "$cmake_ver" ]; then
+                    echo "::error::Could not extract version from CMakeLists.txt"
+                    exit 1
+                  fi
+                  if [ "$cmake_ver" != "$tag_ver" ]; then
+                    echo "::error::Version mismatch — CMakeLists.txt=$cmake_ver tag=$tag_ver"
+                    exit 1
+                  fi
+                  echo "version=$cmake_ver" >> "$GITHUB_OUTPUT"
+
+    # ── 2. Test gate: Linux + macOS, Debug with ASan/UBSan ──────────────
+    test:
+        needs: [validate]
+        strategy:
+            fail-fast: true
+            matrix:
+                include:
+                    - os: ubuntu-latest
+                      deps: sudo apt-get update && sudo apt-get install -y --no-install-recommends universal-ctags
+                      nproc_cmd: nproc
+                    - os: macos-14
+                      deps: brew install universal-ctags
+                      nproc_cmd: 'sysctl -n hw.ncpu'
+        runs-on: ${{ matrix.os }}
+        timeout-minutes: 15
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install test dependencies
+              run: ${{ matrix.deps }}
+
+            - name: Build (Debug + sanitizers)
+              run: |
+                  cmake -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=ON
+                  cmake --build build -j$(${{ matrix.nproc_cmd }})
+
+            - name: Unit tests
+              run: ./build/test_unit
+
+            - name: Integration tests
+              run: ./build/test_integration
+
+            - name: E2E tests
+              run: ./build/test_e2e
+
+    # ── 3. Build Linux (musl-static x86_64/aarch64, glibc-static armv7) ──
+    build-linux:
+        needs: [test]
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - target: linux-x86_64
+                      runner: ubuntu-latest
+                      pkg: musl-tools
+                      cmake_flags: '-DTT_STATIC=ON -DCMAKE_C_COMPILER=musl-gcc'
+                      strip_cmd: strip
+                      smoke_cmd: ./build/toktoken --version
+
+                    - target: linux-aarch64
+                      runner: ubuntu-24.04-arm
+                      pkg: musl-tools
+                      cmake_flags: '-DTT_STATIC=ON -DCMAKE_C_COMPILER=musl-gcc'
+                      strip_cmd: strip
+                      smoke_cmd: ./build/toktoken --version
+
+                    - target: linux-armv7
+                      runner: ubuntu-latest
+                      pkg: gcc-arm-linux-gnueabihf libc6-dev-armhf-cross qemu-user-static
+                      cmake_flags: '-DTT_STATIC=ON -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-armv7hf.cmake'
+                      strip_cmd: arm-linux-gnueabihf-strip
+                      smoke_cmd: qemu-arm-static ./build/toktoken --version
+
+        runs-on: ${{ matrix.runner }}
+        timeout-minutes: 15
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install build dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y --no-install-recommends ${{ matrix.pkg }}
+
+            - name: Configure
+              run: |
+                  cmake -B build \
+                    -DCMAKE_BUILD_TYPE=Release \
+                    -DBUILD_TESTS=OFF \
+                    ${{ matrix.cmake_flags }}
+
+            - name: Build
+              run: cmake --build build -j$(nproc)
+
+            - name: Strip binary
+              run: |
+                  ls -lh build/toktoken
+                  ${{ matrix.strip_cmd }} build/toktoken
+                  ls -lh build/toktoken
+
+            - name: Verify static linking
+              run: |
+                  file build/toktoken
+                  if readelf -d build/toktoken 2>/dev/null | grep -q NEEDED; then
+                    echo "::error::Binary has dynamic dependencies:"
+                    readelf -d build/toktoken | grep NEEDED
+                    exit 1
+                  fi
+                  echo "OK: fully static binary"
+
+            - name: Smoke test
+              run: ${{ matrix.smoke_cmd }}
+
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: toktoken-${{ matrix.target }}
+                  path: build/toktoken
+
+    # ── 4. Build macOS (x86_64 + aarch64, dynamic libSystem only) ──────
+    build-macos:
+        needs: [test]
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - target: macos-x86_64
+                      runner: macos-15
+                      arch: x86_64
+                    - target: macos-aarch64
+                      runner: macos-15
+                      arch: arm64
+
+        runs-on: ${{ matrix.runner }}
+        timeout-minutes: 15
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Configure
+              run: |
+                  cmake -B build \
+                    -DCMAKE_BUILD_TYPE=Release \
+                    -DBUILD_TESTS=OFF \
+                    -DTT_STATIC=ON \
+                    -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }}
+
+            - name: Build
+              run: cmake --build build -j$(sysctl -n hw.ncpu)
+
+            - name: Strip binary
+              run: |
+                  ls -lh build/toktoken
+                  strip build/toktoken
+                  ls -lh build/toktoken
+
+            - name: Verify dependencies
+              run: |
+                  file build/toktoken
+                  otool -L build/toktoken
+                  unexpected=$(otool -L build/toktoken | tail -n +2 | grep -cv "libSystem.B.dylib" || true)
+                  if [ "$unexpected" -ne 0 ]; then
+                    echo "::error::Unexpected dynamic dependencies found"
+                    otool -L build/toktoken
+                    exit 1
+                  fi
+                  echo "OK: only libSystem.B.dylib"
+
+            - name: Smoke test
+              run: ./build/toktoken --version
+
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: toktoken-${{ matrix.target }}
+                  path: build/toktoken
+
+    # ── 5. Build Windows (x86_64, MinGW cross-compilation) ─────────────
+    build-windows:
+        needs: [test]
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - target: win-x86_64
+                      pkg: gcc-mingw-w64-x86-64
+                      toolchain: cmake/toolchain-mingw64.cmake
+                      strip_cmd: x86_64-w64-mingw32-strip
+
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install MinGW toolchain
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y --no-install-recommends ${{ matrix.pkg }}
+
+            - name: Configure
+              run: |
+                  cmake -B build \
+                    -DCMAKE_BUILD_TYPE=Release \
+                    -DBUILD_TESTS=OFF \
+                    -DTT_STATIC=ON \
+                    -DCMAKE_TOOLCHAIN_FILE=${{ matrix.toolchain }}
+
+            - name: Build
+              run: cmake --build build -j$(nproc)
+
+            - name: Strip binary
+              run: |
+                  ls -lh build/toktoken.exe
+                  ${{ matrix.strip_cmd }} build/toktoken.exe
+                  ls -lh build/toktoken.exe
+
+            - name: Verify binary format
+              run: |
+                  file build/toktoken.exe
+                  file build/toktoken.exe | grep -q "PE32" || {
+                    echo "::error::Binary is not a valid PE executable"
+                    exit 1
+                  }
+
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: toktoken-${{ matrix.target }}.exe
+                  path: build/toktoken.exe
+
+    # ── 6. Release: collect artifacts, checksum, publish ────────────────
+    release:
+        needs: [validate, build-linux, build-macos, build-windows]
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/download-artifact@v4
+              with:
+                  path: artifacts
+
+            - name: Prepare release assets
+              run: |
+                  mkdir -p dist
+                  for dir in artifacts/*/; do
+                    name=$(basename "$dir")
+                    file=$(find "$dir" -maxdepth 1 -type f | head -1)
+                    if [ -n "$file" ]; then
+                      cp "$file" "dist/${name}"
+                      chmod +x "dist/${name}" 2>/dev/null || true
+                    fi
+                  done
+                  echo "=== Release assets ==="
+                  ls -lh dist/
+
+            - name: Write VERSION file
+              run: |
+                  echo "${{ needs.validate.outputs.version }}" > dist/VERSION
+                  echo "=== VERSION ==="
+                  cat dist/VERSION
+
+            - name: Generate SHA256 checksums
+              run: |
+                  cd dist
+                  sha256sum toktoken-* > SHA256SUMS
+                  echo "=== SHA256SUMS ==="
+                  cat SHA256SUMS
+
+            - name: Create GitHub Release
+              uses: softprops/action-gh-release@v2
+              with:
+                  name: TokToken ${{ needs.validate.outputs.version }}
+                  generate_release_notes: true
+                  files: dist/*

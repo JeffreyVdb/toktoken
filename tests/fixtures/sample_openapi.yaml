@@ -1,0 +1,30 @@
+openapi: "3.0.3"
+info:
+  title: "User Service"
+  version: "2.0.0"
+paths:
+  /users:
+    get:
+      operationId: listUsers
+      summary: List all users
+    post:
+      operationId: createUser
+      summary: Create a new user
+  /users/{userId}:
+    get:
+      operationId: getUserById
+      summary: Get user by ID
+    put:
+      operationId: updateUser
+      summary: Update user
+    delete:
+      operationId: deleteUser
+      summary: Delete user
+components:
+  schemas:
+    User:
+      type: object
+      description: A user account
+    Address:
+      type: object
+      description: Physical address

@@ -1,0 +1,9 @@
+First line of the search test file.
+This line contains the word authentication for testing.
+Another line with nothing special.
+Here we have a DATABASE connection string.
+This is a line about caching strategies.
+Yet another line with authentication and also database.
+Line seven is short.
+This line is about user authentication middleware.
+Final line of the test file.

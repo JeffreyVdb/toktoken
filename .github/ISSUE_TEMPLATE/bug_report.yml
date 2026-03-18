@@ -1,0 +1,126 @@
+name: Bug Report
+description: Something is broken or produces incorrect results
+labels: ["bug"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: TokToken version
+      description: Output of `toktoken --version`
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      description: How are you using TokToken?
+      options:
+        - CLI
+        - MCP server (Claude Code)
+        - MCP server (Cursor)
+        - MCP server (Windsurf)
+        - MCP server (other)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Linux x64
+        - Linux arm64
+        - macOS x64 (Intel)
+        - macOS arm64 (Apple Silicon)
+        - Windows x64
+        - WSL2
+    validations:
+      required: true
+
+  - type: input
+    id: ctags_version
+    attributes:
+      label: Universal Ctags version
+      description: Output of `ctags --version` (first line). Write "not installed" if absent.
+      placeholder: "Universal Ctags 6.1.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: command
+    attributes:
+      label: Command / MCP tool involved
+      description: Which command or tool triggered the bug?
+      options:
+        - index:create / index_create
+        - index:update / index_update
+        - index:github / index_github
+        - search:symbols / search_symbols
+        - search:text / search_text
+        - search:cooccurrence / search_cooccurrence
+        - search:similar / search_similar
+        - inspect:outline / inspect_outline
+        - inspect:symbol / inspect_symbol
+        - inspect:file / inspect_file
+        - inspect:tree / inspect_tree
+        - inspect:bundle / inspect_bundle
+        - inspect:dependencies / inspect_dependencies
+        - inspect:hierarchy / inspect_hierarchy
+        - find:importers / find_importers
+        - find:references / find_references
+        - find:callers / find_callers
+        - stats
+        - codebase:detect / codebase_detect
+        - "--self-update"
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: language
+    attributes:
+      label: Language being indexed (if applicable)
+      description: The programming language involved in the bug (e.g., Python, Rust, Go).
+      placeholder: "Python"
+    validations:
+      required: false
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps to trigger the bug. Include the exact command you ran.
+      placeholder: |
+        1. `toktoken index:create -p /path/to/project`
+        2. `toktoken search:symbols "MyClass"`
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What actually happened. Paste the full JSON output if available.
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: |
+        Repository size (number of files), relevant config from `.toktoken.json`, diagnostic output (`--debug`), or anything else that helps.
+    validations:
+      required: false

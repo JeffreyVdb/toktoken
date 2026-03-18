@@ -1,0 +1,53 @@
+type User {
+  id: ID!
+  name: String!
+  email: String
+}
+
+interface Node {
+  id: ID!
+}
+
+union SearchResult = User | Post | Comment
+
+enum Role {
+  ADMIN
+  USER
+  GUEST
+}
+
+input CreateUserInput {
+  name: String!
+  email: String!
+}
+
+scalar DateTime
+
+query GetUser($id: ID!) {
+  user(id: $id) {
+    name
+  }
+}
+
+mutation CreateUser($input: CreateUserInput!) {
+  createUser(input: $input) {
+    id
+  }
+}
+
+subscription OnUserCreated {
+  userCreated {
+    id
+    name
+  }
+}
+
+fragment UserFields on User {
+  id
+  name
+  email
+}
+
+extend type User {
+  posts: [Post!]!
+}

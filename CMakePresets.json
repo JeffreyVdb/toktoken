@@ -1,0 +1,118 @@
+{
+    "version": 6,
+    "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+    "configurePresets": [
+        {
+            "name": "debug",
+            "displayName": "Debug (ASan + UBSan + tests)",
+            "binaryDir": "${sourceDir}/build/debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "BUILD_TESTS": "ON"
+            }
+        },
+        {
+            "name": "release",
+            "displayName": "Release (native)",
+            "binaryDir": "${sourceDir}/build/release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "BUILD_TESTS": "OFF"
+            }
+        },
+        {
+            "name": "release-static",
+            "displayName": "Release (native, static linking)",
+            "binaryDir": "${sourceDir}/build/release-static",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "BUILD_TESTS": "OFF",
+                "TT_STATIC": "ON"
+            }
+        },
+        {
+            "name": "valgrind",
+            "displayName": "RelWithDebInfo (no sanitizers, for Valgrind)",
+            "binaryDir": "${sourceDir}/build/valgrind",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "BUILD_TESTS": "ON",
+                "CMAKE_C_FLAGS": "-g -O0"
+            }
+        },
+        {
+            "name": "cross-linux-arm64",
+            "displayName": "Cross: Linux aarch64 (static)",
+            "binaryDir": "${sourceDir}/build/cross-linux-arm64",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "BUILD_TESTS": "OFF",
+                "TT_STATIC": "ON",
+                "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cmake/toolchain-arm64.cmake"
+            }
+        },
+        {
+            "name": "cross-linux-armv7",
+            "displayName": "Cross: Linux ARMv7 hard-float (static)",
+            "binaryDir": "${sourceDir}/build/cross-linux-armv7",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "BUILD_TESTS": "OFF",
+                "TT_STATIC": "ON",
+                "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cmake/toolchain-armv7hf.cmake"
+            }
+        },
+        {
+            "name": "cross-win-x64",
+            "displayName": "Cross: Windows x86_64 (MinGW)",
+            "binaryDir": "${sourceDir}/build/cross-win-x64",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "BUILD_TESTS": "OFF",
+                "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cmake/toolchain-mingw64.cmake"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "debug",
+            "configurePreset": "debug"
+        },
+        {
+            "name": "release",
+            "configurePreset": "release"
+        },
+        {
+            "name": "release-static",
+            "configurePreset": "release-static"
+        },
+        {
+            "name": "valgrind",
+            "configurePreset": "valgrind"
+        },
+        {
+            "name": "cross-linux-arm64",
+            "configurePreset": "cross-linux-arm64"
+        },
+        {
+            "name": "cross-linux-armv7",
+            "configurePreset": "cross-linux-armv7"
+        },
+        {
+            "name": "cross-win-x64",
+            "configurePreset": "cross-win-x64"
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "debug",
+            "configurePreset": "debug",
+            "output": { "outputOnFailure": true }
+        },
+        {
+            "name": "valgrind",
+            "configurePreset": "valgrind",
+            "output": { "outputOnFailure": true }
+        }
+    ]
+}

@@ -1,0 +1,42 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Pet Store API",
+    "version": "1.2.0",
+    "description": "A sample API for managing pets"
+  },
+  "paths": {
+    "/pets": {
+      "get": {
+        "operationId": "listPets",
+        "summary": "List all pets",
+        "description": "Returns all pets in the store"
+      },
+      "post": {
+        "operationId": "createPet",
+        "summary": "Create a pet"
+      }
+    },
+    "/pets/{petId}": {
+      "get": {
+        "operationId": "getPetById",
+        "summary": "Get pet by ID"
+      },
+      "delete": {
+        "summary": "Delete a pet"
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Pet": {
+        "type": "object",
+        "description": "A pet in the store"
+      },
+      "Error": {
+        "type": "object",
+        "description": "Error response"
+      }
+    }
+  }
+}
