@@ -58,7 +58,7 @@ By default, Windsurf prompts for approval each time an MCP tool is called. Ask t
 
 ## Rules Setup
 
-Create `.windsurf/rules/toktoken.md` in your project root with the rules template from [LLM.md](../LLM.md#rules-template).
+Create `.windsurf/rules/toktoken.md` in your project root with the rules template from [rules-template.md](../rules-template.md).
 
 ## Official Documentation
 

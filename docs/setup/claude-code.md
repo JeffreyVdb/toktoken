@@ -89,7 +89,7 @@ If the settings file already exists, **read it first**, merge the new entries in
 
 ## Rules Setup
 
-Create the file `~/.claude/rules/toktoken.md` (global) or `.claude/rules/toktoken.md` (project-scoped) with the rules template from [LLM.md](../LLM.md#rules-template).
+Create the file `~/.claude/rules/toktoken.md` (global) or `.claude/rules/toktoken.md` (project-scoped) with the rules template from [rules-template.md](../rules-template.md).
 
 ## Official Documentation
 

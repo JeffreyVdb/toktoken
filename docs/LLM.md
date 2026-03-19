@@ -16,9 +16,31 @@ If this prints a version string, skip to **Step 3**. Otherwise continue.
 
 ---
 
-## Step 2: Install TokToken
+## Step 2: Install TokToken and its dependencies
 
-### 2.1 Detect platform and download
+### 2.1 Install universal-ctags (required)
+
+TokToken requires `universal-ctags` (NOT exuberant-ctags) for symbol extraction. Check if it's already installed:
+
+```bash
+ctags --version 2>/dev/null | head -1
+```
+
+This must show `Universal Ctags`. If it shows `Exuberant Ctags`, nothing, or an error, it needs to be installed.
+
+You're very likely **not** allowed to run `sudo` or package manager commands on behalf of the User. **Do not run the install commands below unless the User has explicitly granted you permission.** Instead, inform the User that they need to install universal-ctags themselves, and provide them with the appropriate command for their platform:
+
+| Platform | Install command |
+| -------- | --------------- |
+| Ubuntu/Debian | `sudo apt-get install -y universal-ctags` |
+| Fedora/RHEL | `sudo dnf install universal-ctags` |
+| Arch | `sudo pacman -S ctags` |
+| macOS | `brew install universal-ctags` |
+| Windows | `choco install universal-ctags` |
+
+**Do not proceed to Step 2.2 until `ctags --version` shows `Universal Ctags`.**
+
+### 2.2 Detect platform and download TokToken
 
 Use the mapping table below. Do NOT rely on `uname` output directly -- the binary names do not match `uname` values on all platforms.
 
@@ -30,7 +52,9 @@ Use the mapping table below. Do NOT rely on `uname` output directly -- the binar
 | `Darwin` | `x86_64` | `toktoken-macos-x86_64` |
 | `Darwin` | `arm64` | `toktoken-macos-aarch64` |
 
-Windows binary: `toktoken-win-x86_64.exe` (download manually or via PowerShell -- see below).
+Windows binary: `toktoken-win-x86_64.exe` (see Windows section below).
+
+> **Windows users:** The bash scripts in this section use `uname` and are not compatible with PowerShell or cmd.exe. Skip directly to the **Windows (PowerShell)** section below.
 
 Download using the `latest` release URL (no version number needed):
 
@@ -41,7 +65,7 @@ curl -fsSL https://github.com/mauriziofonte/toktoken/releases/latest/download/to
   -o ~/.local/bin/toktoken && chmod +x ~/.local/bin/toktoken
 ```
 
-Full platform detection script (copy-paste safe):
+Full platform detection script (copy-paste safe, Linux/macOS only):
 
 ```bash
 case "$(uname -s)" in
@@ -89,7 +113,7 @@ if ($currentPath -notlike "*$binPath*") {
 }
 ```
 
-### 2.2 Ensure `~/.local/bin` is in PATH (Linux/macOS)
+### 2.3 Ensure `~/.local/bin` is in PATH (Linux/macOS)
 
 ```bash
 case ":$PATH:" in
@@ -99,37 +123,13 @@ case ":$PATH:" in
 esac
 ```
 
-### 2.3 Verify installation
+### 2.4 Verify installation
 
 ```bash
 toktoken --version
 ```
 
 This must print `toktoken X.Y.Z`. If it fails, the binary is not in PATH or the wrong platform binary was downloaded.
-
-### 2.4 Install universal-ctags
-
-TokToken requires `universal-ctags` (NOT exuberant-ctags) for symbol extraction.
-
-You're very likely **not** allowed to run `sudo` commands on behalf of the User, so, it that's the case, **do not run the install commands below**. Instead, inform the User that they need to install universal-ctags themselves, and provide them with the appropriate command for their platform from the table below.
-
-```bash
-# Check if already installed
-ctags --version 2>/dev/null | head -1
-# Must show "Universal Ctags". If it shows "Exuberant Ctags" or nothing, install:
-
-# Ubuntu/Debian
-sudo apt-get install -y universal-ctags
-
-# macOS
-brew install universal-ctags
-
-# Arch
-sudo pacman -S ctags
-
-# Fedora/RHEL
-sudo dnf install universal-ctags
-```
 
 ---
 
@@ -174,106 +174,7 @@ For most MCP clients (all except Claude Code, VS Code, and Codex CLI), the JSON 
 
 ### 3.2 CLI rules setup (for agents without MCP, or as complement)
 
-Copy the rules template below into your agent's instructions file. Each vendor setup guide above includes the specific file path and format for rules placement.
-
-#### Rules template
-
-````markdown
-# TokToken -- Codebase Index
-
-## Session Init (once per session)
-
-Run `toktoken codebase:detect` at session start.
-
-- exit 0, action "ready" --> use TokToken for code exploration
-- exit 0, action "index:create" --> run `toktoken index:create`, then use TokToken
-- exit 1 --> not a codebase, do not use TokToken
-
-Cache the result. Do not re-check.
-
-TokToken's smart filter (default: on) excludes CSS, HTML, SVG, TOML, GraphQL, XML, YAML
-and vendored subdirectories. If you need to search these, re-index with `--full`.
-
-## Pre-Query Freshness
-
-Before any TokToken query, if you have edited source files since the last
-index:update, run `toktoken index:update` first. This uses file-hash comparison
-and detects all changes including uncommitted edits.
-
-## Commands
-
-- `toktoken search:symbols "<query>"` -- find functions, classes, methods
-- `toktoken search:text "<query>"` -- full-text search (supports pipe OR: "cache|ttl")
-- `toktoken inspect:outline "<file>"` -- file structure
-- `toktoken inspect:symbol "<id>"` -- retrieve source code for a specific symbol
-- `toktoken inspect:bundle "<id>"` -- symbol context bundle (definition + imports + outline)
-- `toktoken inspect:file "<file>" --lines START-END` -- file content slice
-- `toktoken inspect:tree` -- file tree
-- `toktoken find:importers "<file>"` -- find files that import a given file
-- `toktoken find:references "<id>"` -- find import references to an identifier
-- `toktoken find:callers "<id>"` -- find symbols that likely call a function
-- `toktoken search:cooccurrence "<a>,<b>"` -- find symbols co-occurring in same file
-- `toktoken search:similar "<id>"` -- find similar symbols by name/summary
-- `toktoken inspect:dependencies "<file>"` -- trace transitive import graph
-- `toktoken inspect:hierarchy "<file>"` -- show class/function parent-child hierarchy
-- `toktoken stats` -- index statistics
-- `toktoken index:update` -- refresh after edits
-
-## Key Flags
-
-- `--kind class,method,function` -- filter by symbol type
-- `--filter`, `--exclude` -- path filtering (pipe-separated OR)
-- `--count` -- count-only mode (useful for negative signals)
-- `--group-by file` -- aggregate text search hits per file
-- `--compact` -- smaller JSON output (~47% reduction)
-- `--limit N` -- cap results
-- `--no-sig --no-summary` -- minimal output for discovery queries
-- `--context N` / `-C N` -- context lines around matches
-- `--debug` -- show per-field score breakdown in search results
-
-## Smart Filter Awareness
-
-TokToken's smart filter (default: on) excludes non-code files and vendored
-subdirectories from the index. Excluded extensions: CSS, SCSS, LESS, SASS,
-HTML, HTM, SVG, TOML, GraphQL, XML, XUL, YAML, YML.
-
-**When to re-index with `--full`:**
-
-- The user asks about CSS selectors, HTML structure, XML schemas, YAML config,
-  OpenAPI specs, GraphQL schemas, TOML config, or SVG content
-- A search returns 0 results but the user expects matches in excluded file types
-- The user explicitly asks to index "everything" or "all files"
-- The project is primarily composed of excluded file types (e.g., a design system
-  with mostly CSS/HTML, an infrastructure repo with YAML/HCL, an API project
-  with OpenAPI specs)
-
-**How to re-index:**
-
-- MCP: call `index_create` with `full: true` (or `index_update` with `full: true`)
-- CLI: `toktoken index:create --full` (or `toktoken index:update --full`)
-
-**Proactive communication:** When you detect that the user's query targets
-excluded file types, inform them BEFORE they ask:
-
-> "TokToken's smart filter excludes [CSS/HTML/XML/...] files by default to
-> reduce noise. I'll re-index with `--full` to include them."
-
-Do not silently re-index. Explain what was excluded and why you are including it.
-
-## Rules
-
-- Search first, then inspect:symbol for targeted retrieval
-- Do not read entire files when a symbol retrieval suffices
-- Do not pipe output through jq/python/awk -- use native flags
-- Symbol IDs follow the format: `{file}::{qualified_name}#{kind}`
-
-## Update Awareness
-
-When TokToken responses include `update_available` in the `_ttk` metadata,
-inform the user once per session: "TokToken update available (current: X.Y.Z,
-latest: X.Y.Z). Run `toktoken --self-update` to upgrade."
-Do not repeat after first notification. Do not run the update automatically.
-````
+Copy the rules template from [docs/rules-template.md](rules-template.md) into your agent's instructions file. Each vendor setup guide above includes the specific file path and format for rules placement.
 
 ---
 
@@ -302,7 +203,7 @@ toktoken index:update
 
 ## Step 5: Start using TokToken
 
-### Available MCP tools (21 total)
+### Available MCP tools
 
 | Tool | Description |
 | ---- | ----------- |
@@ -446,58 +347,191 @@ toktoken inspect:tree --depth 2
 
 ## Workflow Patterns
 
-### Architecture exploration
+These patterns show how to combine TokToken commands for common tasks. Each pattern is designed to minimize token usage by narrowing the search space before retrieving source code.
+
+### "I need to understand how authentication works in this codebase"
+
+Start broad, then zoom in. Never read entire files.
 
 ```text
-1. toktoken search:symbols "route" --kind class,method,function --unique --limit 20
-2. toktoken search:text "route" --group-by file --exclude vendor
-3. toktoken inspect:outline <key-file> --kind class,method
-4. Read only the relevant sections of identified files
+1. toktoken search:symbols "auth" --kind class,method,function --unique --limit 20
+   --> Find all authentication-related symbols. Note the file paths and symbol IDs.
+
+2. toktoken inspect:outline src/Auth/AuthManager.php --kind class,method
+   --> See the structure of the key file without reading its source code.
+
+3. toktoken inspect:symbol "src/Auth/AuthManager.php::AuthManager.authenticate#method"
+   --> Read ONLY the authenticate() method, not the 800-line file.
+
+4. toktoken inspect:bundle "src/Auth/AuthManager.php::AuthManager.authenticate#method" --full
+   --> Get authenticate() + its imports + file outline + who imports this file.
+   --> This single call replaces reading 3-4 files.
 ```
 
-### Negative signal (proving code does NOT exist)
+**Key principle:** `inspect:bundle` is the most token-efficient way to understand a symbol in context. Use it before reaching for `inspect:file` or reading raw files.
+
+### "I need to fix a bug in the processOrder() function"
+
+Before touching code, understand the blast radius.
 
 ```text
-1. toktoken search:text "cache" --filter "Entity" --count
+1. toktoken search:symbols "processOrder" --kind function,method
+   --> Find the symbol ID.
+
+2. toktoken inspect:symbol "src/Orders/OrderService.php::OrderService.processOrder#method"
+   --> Read the function source code.
+
+3. toktoken find:callers "src/Orders/OrderService.php::OrderService.processOrder#method"
+   --> Who calls processOrder()? These callers might break if you change the signature.
+
+4. toktoken find:importers "src/Orders/OrderService.php"
+   --> Which files import OrderService? These are all potentially affected.
+
+5. toktoken inspect:dependencies "src/Orders/OrderService.php" --depth 2
+   --> What does OrderService depend on? Trace the import graph to understand
+   --> which services, models, and utilities it uses.
+```
+
+### "Does this codebase use caching? Where and how?"
+
+Prove presence or absence of a concept across the entire codebase, without reading a single file.
+
+```text
+1. toktoken search:text "cache" --exclude vendor --group-by file
+   --> Which files mention "cache"? Grouped by file = one line per file, not per match.
+
+2. toktoken search:symbols "cache" --kind class --count
+   --> {"count": 3}
+   --> There are exactly 3 cache-related classes. Not 0, not 50.
+
+3. toktoken search:text "cache" --filter "Entity|Model" --count
    --> {"count": 0}
-   --> Cache is NOT in Entity layer. Skip reading 50+ files.
-2. toktoken search:text "cache" --exclude vendor --group-by file
-   --> Shows cache is in Dispatcher.php and Api.php
-3. Read only those 2 files
+   --> Cache is NOT used in the Entity/Model layer. Skip those 40+ files entirely.
+
+4. toktoken search:symbols "cache" --kind class
+   --> Get the symbol IDs for the 3 cache classes.
+
+5. toktoken inspect:bundle "src/Cache/RedisCache.php::RedisCache#class"
+   --> Read the main cache class with its full context.
 ```
 
-The `--count` flag is critical for negative signals. It proves a concept does NOT exist in a file set, saving hundreds of lines of unnecessary reading.
+**Key principle:** `--count` is critical for negative signals. It proves a concept does NOT exist in a file set, saving hundreds of lines of unnecessary reading.
 
-### Cross-cutting feature
+### "I need to refactor UserRepository -- what depends on it?"
+
+Map the full dependency graph before making changes.
 
 ```text
-1. toktoken search:symbols "related_concept" --kind class,method --unique
-2. toktoken search:text "related_term" --group-by file --exclude vendor
-3. toktoken inspect:outline <each-key-file> --kind method
-4. Read only the specific methods/sections to modify
+1. toktoken inspect:outline src/Repository/UserRepository.php
+   --> See all public methods (the contract you might break).
+
+2. toktoken find:callers "src/Repository/UserRepository.php::UserRepository.findByEmail#method"
+   --> Who calls findByEmail()? These are the direct consumers.
+
+3. toktoken find:importers "src/Repository/UserRepository.php"
+   --> Every file that imports UserRepository. This is the maximum blast radius.
+
+4. toktoken inspect:dependencies "src/Repository/UserRepository.php" --depth 3
+   --> What does UserRepository itself depend on? If you change its constructor,
+   --> you need to know what it injects.
+
+5. toktoken search:cooccurrence "UserRepository,Transaction"
+   --> Which files use BOTH UserRepository and Transaction?
+   --> These are the files where refactoring is most complex.
 ```
 
-### Impact analysis (refactoring scope)
+### "I want to understand the architecture of an unfamiliar project"
+
+Top-down exploration using structural commands only (no source reading).
 
 ```text
-1. toktoken inspect:dependencies "src/auth.py" --depth 3
-   --> Shows all files that transitively depend on auth.py
-2. toktoken find:callers "src/auth.py::authenticate#function"
-   --> Shows which functions call authenticate()
-3. toktoken inspect:hierarchy "src/auth.py"
-   --> Shows class/method nesting structure
+1. toktoken inspect:tree --depth 2
+   --> Get the directory structure. Understand the project layout.
+
+2. toktoken search:symbols "main|app|server|bootstrap" --kind function,class --unique --limit 10
+   --> Find entry points.
+
+3. toktoken inspect:outline src/app.py --kind class,function
+   --> See the structure of the main entry point.
+
+4. toktoken inspect:hierarchy src/models/base.py
+   --> See the class hierarchy. Which classes extend BaseModel?
+   --> Understand the inheritance tree without reading any source.
+
+5. toktoken inspect:dependencies src/app.py --depth 2
+   --> What does the entry point import? This shows the top-level architecture.
+
+6. toktoken search:cooccurrence "Router,Controller"
+   --> Where are routing and controllers wired together?
+
+7. toktoken stats
+   --> How big is this project? How many files, symbols, languages?
 ```
 
-### Architectural discovery
+### "I want to review a library before adopting it"
+
+Index a remote repository and explore its API surface.
 
 ```text
-1. toktoken search:cooccurrence "Logger,Database"
-   --> Which files use both Logger and Database?
-2. toktoken search:similar "src/auth.py::validate_token#function"
-   --> Find functions similar to validate_token
-3. toktoken inspect:hierarchy "src/models.py"
-   --> Show class hierarchy with children
+1. toktoken index:github owner/repo-name
+   --> Clone and index the repository in one step.
+
+2. toktoken inspect:tree --depth 2
+   --> Understand the project structure.
+
+3. toktoken search:symbols "" --kind class,interface --unique --limit 30
+   --> List all public classes and interfaces (the API surface).
+
+4. toktoken inspect:outline src/Client.php --kind method
+   --> See the public methods of the main client class.
+
+5. toktoken search:text "throw|raise|error|exception" --group-by file
+   --> How does the library handle errors? Which files have error handling?
+
+6. toktoken inspect:dependencies src/Client.php --depth 3
+   --> What does the library depend on internally? Heavy dependency trees
+   --> are a red flag.
+
+7. toktoken search:symbols "deprecated" --count
+   --> How much deprecated API surface exists?
 ```
+
+### "I need to find similar implementations across the codebase"
+
+Use semantic similarity and co-occurrence to find patterns.
+
+```text
+1. toktoken search:similar "src/Services/EmailNotifier.php::EmailNotifier.send#method"
+   --> Find methods similar to send() -- likely other notification channels
+   --> (SlackNotifier.send, SmsNotifier.send, etc.)
+
+2. toktoken search:cooccurrence "Logger,HttpClient"
+   --> Which files use both Logger and HttpClient?
+   --> These are likely API integration points with logging.
+
+3. toktoken inspect:hierarchy src/Notifications/BaseNotifier.php
+   --> See all classes that extend BaseNotifier.
+   --> This shows the full notification subsystem without reading any file.
+
+4. toktoken find:references "EmailNotifier"
+   --> Find every import statement that references EmailNotifier.
+   --> Different from find:importers (which works on files, not identifiers).
+```
+
+### "I need to read a specific section of a large file"
+
+When you need file content but not the whole file.
+
+```text
+1. toktoken inspect:outline src/database/migrations.py
+   --> See the structure with line numbers. Identify the section you need.
+
+2. toktoken inspect:file src/database/migrations.py --lines 142-198
+   --> Read only lines 142-198 (the specific migration you care about).
+   --> On a 2000-line file, this saves ~95% of tokens.
+```
+
+**Key principle:** `inspect:outline` first gives you line numbers, then `inspect:file --lines` or `inspect:symbol` retrieves only what you need. Never read a whole file when you know which section you want.
 
 ---
 
@@ -531,3 +565,47 @@ Environment variables (highest priority):
 - `TOKTOKEN_EXTRA_IGNORE` -- JSON array or comma-separated patterns
 - `TOKTOKEN_STALENESS_DAYS` -- integer (min 1)
 - `TOKTOKEN_EXTRA_EXTENSIONS` -- "ext1:lang1,ext2:lang2"
+
+---
+
+## Troubleshooting
+
+### `index:create` fails with "ctags not found" or "exuberant-ctags detected"
+
+TokToken requires **universal-ctags**, not the older exuberant-ctags. Run `ctags --version` to check. If it shows `Exuberant Ctags` or nothing, install universal-ctags (see Step 2.1). On some systems, `exuberant-ctags` is installed as the default `ctags` -- you must replace it.
+
+### `index:create` produces 0 symbols
+
+Likely causes:
+
+1. **Wrong directory:** `toktoken codebase:detect` must return `action: "index:create"` or `action: "ready"`. If it returns exit code 1, the directory has no indexable source files.
+2. **Smart filter excluded everything:** If your project is primarily CSS/HTML/YAML, run `toktoken index:create --full` to disable the smart filter.
+3. **Language not supported:** Check [docs/LANGUAGES.md](LANGUAGES.md) for the list of supported languages. If your language uses non-standard file extensions, configure `extra_extensions` in `.toktoken.json`.
+
+### `index:create` is very slow (> 60 seconds for a small project)
+
+1. **Large files:** Files over 2MB are skipped by default. If you have auto-generated files (e.g., `bundle.js`, `*.min.js`), add them to `extra_ignore_patterns` in `.toktoken.json`.
+2. **ctags timeout:** For very large files that ctags struggles with, increase `ctags_timeout_seconds` in `.toktoken.json` (default: 120).
+3. **Too many files:** Check `toktoken stats` for the file count. If it's indexing vendored/generated code, use `--exclude` or `extra_ignore_patterns`.
+
+### MCP server not recognized by the agent
+
+1. **Config file format:** Each agent uses a different JSON format. Claude Code uses `claude mcp add-json`, Cursor uses `mcpServers`, VS Code/Copilot uses `servers` (NOT `mcpServers`). Check the agent-specific setup guide in [Step 3](#step-3-configure-agent-integration).
+2. **Restart required:** Most agents require a restart after changing MCP configuration.
+3. **Binary not in PATH:** The MCP config uses `"command": "toktoken"` which requires the binary to be in PATH. Run `which toktoken` to verify. If it's not found, add `~/.local/bin` to your PATH.
+
+### `search:symbols` returns no results but the symbol exists
+
+1. **Index is stale:** Run `toktoken index:update` to refresh.
+2. **Symbol is in an excluded file type:** If the symbol is in a CSS/HTML/YAML file, re-index with `--full`.
+3. **Try text search:** `toktoken search:text "symbolName"` searches raw file content, not the symbol index. If text search finds it but symbol search doesn't, the symbol might not be recognized by ctags for that language.
+
+### Permission denied errors
+
+TokToken stores its index under `~/.cache/.toktoken/`. If this directory has wrong permissions, run:
+
+```bash
+mkdir -p ~/.cache/.toktoken && chmod 755 ~/.cache/.toktoken
+```
+
+On Windows, the cache directory is `%LOCALAPPDATA%\.toktoken\`.

@@ -45,8 +45,22 @@ Works with Claude Code, Cursor, Windsurf, Copilot, Gemini, Codex, **and any MCP-
 - **Token savings tracking**: cumulative metrics via the `stats` command
 - **Auto-update**: `--self-update` with SHA-256 verification and atomic binary replacement
 - **Cross-platform**: Linux (x64/ARM64/ARMv7), macOS (Intel/Apple Silicon), Windows (x64)
-- **Zero dependencies**: single static binary, no runtime requirements
+- **Single static binary**: no runtime requirements beyond `universal-ctags` (see below)
 - **No project pollution**: all data stored under `~/.cache/.toktoken/`, nothing written inside your project
+
+## Prerequisites
+
+TokToken requires [universal-ctags](https://ctags.io/) (NOT exuberant-ctags) for symbol extraction. Static linking of ctags is planned but not yet implemented.
+
+| Platform | Install command |
+| -------- | --------------- |
+| Ubuntu/Debian | `sudo apt-get install -y universal-ctags` |
+| Fedora/RHEL | `sudo dnf install universal-ctags` |
+| Arch | `sudo pacman -S ctags` |
+| macOS | `brew install universal-ctags` |
+| Windows | `choco install universal-ctags` |
+
+Verify installation: `ctags --version` must show **Universal Ctags**, not Exuberant Ctags.
 
 ## Quick Start
 

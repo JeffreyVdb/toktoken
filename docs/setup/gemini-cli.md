@@ -44,7 +44,7 @@ This will auto-approve all tools from the `toktoken` MCP server without promptin
 
 ## Rules Setup
 
-Append the rules template from [LLM.md](../LLM.md#rules-template) to one of these files:
+Append the rules template from [rules-template.md](../rules-template.md) to one of these files:
 
 | Scope | File |
 | ----- | ---- |

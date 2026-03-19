@@ -48,7 +48,7 @@ By default, Cursor prompts for approval each time an MCP tool is called. Ask the
 
 ## Rules Setup
 
-Create `.cursor/rules/toktoken.mdc` in your project root with the following YAML frontmatter, followed by the rules template from [LLM.md](../LLM.md#rules-template):
+Create `.cursor/rules/toktoken.mdc` in your project root with the following YAML frontmatter, followed by the rules template from [rules-template.md](../rules-template.md):
 
 ```yaml
 ---

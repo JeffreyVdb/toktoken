@@ -6,7 +6,7 @@
 
 Ask the user whether they want global (all projects) or project-scoped (current project only) configuration.
 
-Append the rules template from [LLM.md](../LLM.md#rules-template) to one of these files:
+Append the rules template from [rules-template.md](../rules-template.md) to one of these files:
 
 | Scope | File |
 | ----- | ---- |
