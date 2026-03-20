@@ -510,6 +510,85 @@ int tt_walk_dir(const char *root, tt_walk_cb cb, void *userdata)
 
 /* ===== Process execution ===== */
 
+/*
+ * win_argv_escape -- Escape a single argument for Windows command line.
+ *
+ * Implements the escaping rules expected by CommandLineToArgvW():
+ *   - The argument is wrapped in double quotes.
+ *   - Backslashes are literal UNLESS immediately preceding a double quote,
+ *     in which case each backslash must be doubled.
+ *   - A trailing run of backslashes (before the closing quote) must also
+ *     be doubled.
+ *   - Each embedded double quote is escaped as \".
+ *
+ * Reference: https://learn.microsoft.com/en-us/cpp/c-language/parsing-c-command-line-arguments
+ *
+ * Appends the escaped argument (including surrounding quotes) to dst.
+ * dst must point into a buffer with sufficient space.
+ * Returns pointer past the last written byte.
+ */
+static char *win_argv_escape(char *dst, const char *arg)
+{
+    *dst++ = '"';
+
+    const char *p = arg;
+    while (*p)
+    {
+        /* Count consecutive backslashes */
+        size_t num_backslashes = 0;
+        while (*p == '\\')
+        {
+            p++;
+            num_backslashes++;
+        }
+
+        if (*p == '\0')
+        {
+            /* Argument ends with backslashes: double them (they precede
+             * the closing quote) */
+            for (size_t i = 0; i < num_backslashes * 2; i++)
+                *dst++ = '\\';
+            break;
+        }
+        else if (*p == '"')
+        {
+            /* Backslashes followed by a double quote: double the
+             * backslashes, then escape the quote */
+            for (size_t i = 0; i < num_backslashes * 2; i++)
+                *dst++ = '\\';
+            *dst++ = '\\';
+            *dst++ = '"';
+            p++;
+        }
+        else
+        {
+            /* Backslashes not followed by a quote: emit them literally */
+            for (size_t i = 0; i < num_backslashes; i++)
+                *dst++ = '\\';
+            *dst++ = *p++;
+        }
+    }
+
+    *dst++ = '"';
+    return dst;
+}
+
+/*
+ * win_cmdline_size -- Compute worst-case buffer size for escaped command line.
+ *
+ * Worst case per argument: every character could need doubling (all backslashes
+ * before a quote), plus 2 quotes + 1 space separator.
+ */
+static size_t win_cmdline_size(const char *const argv[])
+{
+    size_t total = 0;
+    for (int i = 0; argv[i]; i++)
+    {
+        total += strlen(argv[i]) * 2 + 3; /* worst-case escaping + quotes + space */
+    }
+    return total + 1; /* NUL terminator */
+}
+
 tt_proc_result_t tt_proc_run(const char *const argv[], const char *stdin_data,
                               int timeout_ms)
 {
@@ -520,22 +599,17 @@ tt_proc_result_t tt_proc_run(const char *const argv[], const char *stdin_data,
         return result;
     }
 
-    /* Build command line from argv */
-    size_t cmdlen = 0;
-    for (int i = 0; argv[i]; i++) {
-        cmdlen += strlen(argv[i]) + 3; /* quotes + space */
-    }
-
-    char *cmdline = malloc(cmdlen + 1);
+    /* Build properly escaped command line from argv */
+    size_t cmdlen = win_cmdline_size(argv);
+    char *cmdline = malloc(cmdlen);
     if (!cmdline) return result;
-    cmdline[0] = '\0';
 
+    char *dst = cmdline;
     for (int i = 0; argv[i]; i++) {
-        if (i > 0) strcat(cmdline, " ");
-        strcat(cmdline, "\"");
-        strcat(cmdline, argv[i]);
-        strcat(cmdline, "\"");
+        if (i > 0) *dst++ = ' ';
+        dst = win_argv_escape(dst, argv[i]);
     }
+    *dst = '\0';
 
     wchar_t *wcmd = utf8_to_utf16(cmdline);
     free(cmdline);

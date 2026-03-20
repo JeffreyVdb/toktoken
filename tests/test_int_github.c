@@ -415,6 +415,7 @@ TT_TEST(test_gh_not_found_via_path_override)
 
     char *original_path = tt_strdup(getenv("PATH"));
     setenv("PATH", tmpdir, 1);
+    tt_gh_reset_path_cache();
 
     tt_error_clear();
     TT_ASSERT_FALSE(tt_gh_available());
@@ -425,6 +426,7 @@ TT_TEST(test_gh_not_found_via_path_override)
 
     /* Restore PATH */
     setenv("PATH", original_path, 1);
+    tt_gh_reset_path_cache();
     free(original_path);
     tt_test_rmdir(tmpdir);
     free(tmpdir);
@@ -460,6 +462,7 @@ TT_TEST(test_gh_not_authenticated_via_fake_script)
     char new_path[4096];
     snprintf(new_path, sizeof(new_path), "%s:%s", tmpdir, original_path);
     setenv("PATH", new_path, 1);
+    tt_gh_reset_path_cache();
 
     tt_error_clear();
     TT_ASSERT_TRUE(tt_gh_available()); /* fake gh is in PATH */
@@ -475,6 +478,7 @@ TT_TEST(test_gh_not_authenticated_via_fake_script)
 
     /* Restore */
     setenv("PATH", original_path, 1);
+    tt_gh_reset_path_cache();
     free(original_path);
     tt_test_rmdir(tmpdir);
     free(tmpdir);
@@ -548,6 +552,7 @@ TT_TEST(test_cmd_github_gh_not_found)
     char *tmpdir = tt_test_tmpdir();
     char *original_path = tt_strdup(getenv("PATH"));
     setenv("PATH", tmpdir, 1);
+    tt_gh_reset_path_cache(); /* invalidate cached gh/git paths */
 
     tt_cli_opts_t opts;
     memset(&opts, 0, sizeof(opts));
@@ -565,6 +570,7 @@ TT_TEST(test_cmd_github_gh_not_found)
 
     cJSON_Delete(result);
     setenv("PATH", original_path, 1);
+    tt_gh_reset_path_cache(); /* re-resolve with restored PATH */
     free(original_path);
     tt_test_rmdir(tmpdir);
     free(tmpdir);

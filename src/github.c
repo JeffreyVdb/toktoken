@@ -1,8 +1,9 @@
 /*
  * github.c -- GitHub repository operations via gh CLI.
  *
- * Security: all subprocess calls use tt_proc_run() with explicit argv arrays.
- * No user input is ever interpolated into shell command strings.
+ * Security: subprocess calls (gh, git) use tt_proc_run() with explicit argv
+ * arrays. No user input is ever interpolated into shell command strings.
+ * Filesystem operations (rm, ls) use native platform APIs, not subprocesses.
  */
 
 #include "github.h"
@@ -23,22 +24,49 @@
 /* Pull timeout: 60 seconds */
 #define GH_PULL_TIMEOUT_MS (60 * 1000)
 
+/* ---- Resolved tool paths ---- */
+
+/* Cached resolved paths for gh and git. Resolved once, reused for all
+ * subprocess calls. This prevents PATH hijacking between the availability
+ * check and actual use, and ensures we always call the same binary. */
+static char *gh_path_cache = NULL;
+static char *git_path_cache = NULL;
+
+static const char *resolve_gh(void)
+{
+    if (!gh_path_cache)
+        gh_path_cache = tt_which("gh");
+    return gh_path_cache;
+}
+
+static const char *resolve_git(void)
+{
+    if (!git_path_cache)
+        git_path_cache = tt_which("git");
+    return git_path_cache;
+}
+
+void tt_gh_reset_path_cache(void)
+{
+    free(gh_path_cache);
+    gh_path_cache = NULL;
+    free(git_path_cache);
+    git_path_cache = NULL;
+}
+
 /* ---- gh CLI checks ---- */
 
 bool tt_gh_available(void)
 {
-    char *path = tt_which("gh");
-    if (path)
-    {
-        free(path);
-        return true;
-    }
-    return false;
+    return resolve_gh() != NULL;
 }
 
 bool tt_gh_authenticated(void)
 {
-    const char *argv[] = {"gh", "auth", "status", NULL};
+    const char *gh = resolve_gh();
+    if (!gh) return false;
+
+    const char *argv[] = {gh, "auth", "status", NULL};
     tt_proc_result_t r = tt_proc_run(argv, NULL, 10000);
 
     bool ok = (r.exit_code == 0);
@@ -266,21 +294,19 @@ bool tt_gh_repo_exists(const char *owner, const char *repo)
 /* ---- Clone and pull ---- */
 
 /*
- * rmrf_recursive -- Remove directory tree.
+ * rmrf_safe -- Remove directory tree using native platform APIs.
  *
- * Uses platform walk + remove. For cleanup of partial clones.
+ * Cross-platform: uses tt_remove_dir_recursive() (implemented natively
+ * on both Unix and Windows) instead of shelling out to "rm -rf".
  */
-static int rmrf_recursive(const char *path)
+static int rmrf_safe(const char *path)
 {
+    if (!path)
+        return 0;
     if (!tt_file_exists(path))
         return 0;
 
-    /* Use rm -rf via subprocess for reliability */
-    const char *argv[] = {"rm", "-rf", path, NULL};
-    tt_proc_result_t r = tt_proc_run(argv, NULL, 30000);
-    int rc = r.exit_code;
-    tt_proc_result_free(&r);
-    return rc == 0 ? 0 : -1;
+    return tt_remove_dir_recursive(path);
 }
 
 /*
@@ -375,9 +401,16 @@ int tt_gh_clone(const char *owner, const char *repo,
     free(parent);
 
     /* Build argument list for gh repo clone */
+    const char *gh = resolve_gh();
+    if (!gh)
+    {
+        free(repo_spec);
+        tt_error_set("github: gh not found in PATH");
+        return -1;
+    }
     const char *argv[16];
     int argc = 0;
-    argv[argc++] = "gh";
+    argv[argc++] = gh;
     argv[argc++] = "repo";
     argv[argc++] = "clone";
     argv[argc++] = repo_spec;
@@ -432,7 +465,7 @@ int tt_gh_clone(const char *owner, const char *repo,
                         wait_sec, attempt + 1, max_retries);
             tt_proc_result_free(&r);
             /* Cleanup partial clone before retry */
-            rmrf_recursive(target_dir);
+            rmrf_safe(target_dir);
             tt_sleep_ms(wait_sec * 1000);
             continue;
         }
@@ -441,7 +474,7 @@ int tt_gh_clone(const char *owner, const char *repo,
         classify_clone_error(r.stderr_buf, r.exit_code, owner, repo);
         tt_proc_result_free(&r);
         free(repo_spec);
-        rmrf_recursive(target_dir);
+        rmrf_safe(target_dir);
         return -1;
     }
 
@@ -451,8 +484,14 @@ int tt_gh_clone(const char *owner, const char *repo,
 
 int tt_gh_pull(const char *target_dir, char **out_message)
 {
+    const char *git = resolve_git();
+    if (!git)
+    {
+        tt_error_set("github: git not found in PATH");
+        return -1;
+    }
     const char *argv[] = {
-        "git", "-C", target_dir, "pull", "--ff-only", NULL};
+        git, "-C", target_dir, "pull", "--ff-only", NULL};
 
     tt_progress("Updating %s...\n", target_dir);
     tt_proc_result_t r = tt_proc_run(argv, NULL, GH_PULL_TIMEOUT_MS);
@@ -495,7 +534,7 @@ int tt_gh_remove_repo(const char *owner, const char *repo)
     int rc = 0;
     if (tt_file_exists(dir))
     {
-        rc = rmrf_recursive(dir);
+        rc = rmrf_safe(dir);
         if (rc < 0)
         {
             tt_error_set("github: failed to remove '%s'", dir);
@@ -515,7 +554,7 @@ int tt_gh_remove_all_repos(void)
     int rc = 0;
     if (tt_file_exists(base))
     {
-        rc = rmrf_recursive(base);
+        rc = rmrf_safe(base);
         if (rc < 0)
         {
             tt_error_set("github: failed to remove '%s'", base);
@@ -524,6 +563,112 @@ int tt_gh_remove_all_repos(void)
 
     free(base);
     return rc;
+}
+
+/*
+ * gh_list_scan_ctx_t -- Context for tt_walk_dir callback used by
+ * tt_gh_list_repos() to scan the repos/{owner}/{repo}/ structure
+ * without shelling out to "ls".
+ */
+typedef struct
+{
+    tt_gh_list_entry_t *entries;
+    int count;
+    int cap;
+    bool oom;
+} gh_list_scan_ctx_t;
+
+/*
+ * repo_scan_cb -- tt_walk_dir callback for the inner (repo-level) scan.
+ *
+ * Called for each entry inside an owner directory. Checks if the entry
+ * is a directory containing a .git subdirectory (i.e., a cloned repo).
+ * Returns 1 (skip) for each entry to prevent recursion into subdirs.
+ */
+static int repo_scan_cb(const char *dir, const char *name,
+                         bool is_dir, bool is_symlink, void *userdata)
+{
+    (void)is_symlink;
+    gh_list_scan_ctx_t *ctx = userdata;
+
+    if (ctx->oom)
+        return -1; /* stop */
+
+    /* Skip hidden entries and non-directories */
+    if (!is_dir || name[0] == '.')
+        return 1; /* skip */
+
+    /* Check for .git subdirectory */
+    char *repo_path = tt_path_join(dir, name);
+    if (!repo_path)
+        return 1;
+
+    char *git_dir = tt_path_join(repo_path, ".git");
+    bool is_git = git_dir && tt_is_dir(git_dir);
+    free(git_dir);
+
+    if (!is_git)
+    {
+        free(repo_path);
+        return 1;
+    }
+
+    /* Grow entries array if needed */
+    if (ctx->count >= ctx->cap)
+    {
+        int new_cap = ctx->cap ? ctx->cap * 2 : 16;
+        void *tmp = realloc(ctx->entries,
+                            (size_t)new_cap * sizeof(ctx->entries[0]));
+        if (!tmp)
+        {
+            free(repo_path);
+            ctx->oom = true;
+            return -1; /* stop */
+        }
+        ctx->entries = tmp;
+        ctx->cap = new_cap;
+    }
+
+    /* Extract owner name from dir path (last component) */
+    const char *owner_name = tt_path_basename(dir);
+
+    ctx->entries[ctx->count].owner = tt_strdup(owner_name);
+    ctx->entries[ctx->count].repo = tt_strdup(name);
+    ctx->entries[ctx->count].local_path = repo_path; /* transfer ownership */
+    ctx->count++;
+
+    return 1; /* skip: do not recurse into the repo */
+}
+
+/*
+ * owner_scan_cb -- tt_walk_dir callback for the outer (owner-level) scan.
+ *
+ * Called for each entry inside the gh-repos base directory. For each
+ * owner directory, runs a nested tt_walk_dir to find repos inside it.
+ * Returns 1 (skip) for each entry to prevent tt_walk_dir from recursing
+ * on its own -- we handle the one-level-deep recursion ourselves.
+ */
+static int owner_scan_cb(const char *dir, const char *name,
+                          bool is_dir, bool is_symlink, void *userdata)
+{
+    (void)is_symlink;
+    gh_list_scan_ctx_t *ctx = userdata;
+
+    if (ctx->oom)
+        return -1;
+
+    if (!is_dir || name[0] == '.')
+        return 1; /* skip hidden and non-dirs */
+
+    char *owner_path = tt_path_join(dir, name);
+    if (!owner_path)
+        return 1;
+
+    /* Scan repos inside this owner directory */
+    tt_walk_dir(owner_path, repo_scan_cb, ctx);
+
+    free(owner_path);
+    return 1; /* skip: we handled recursion ourselves */
 }
 
 /* Scan the repos directory structure: repos/{owner}/{repo}/ */
@@ -542,116 +687,13 @@ int tt_gh_list_repos(tt_gh_list_entry_t **out_entries, int *out_count)
         return 0;
     }
 
-    tt_gh_list_entry_t *entries = NULL;
-    int count = 0, cap = 0;
+    gh_list_scan_ctx_t ctx = {NULL, 0, 0, false};
 
-    /* List owner directories using ls (one level only) */
-    const char *ls_argv[] = {"ls", "-1", base, NULL};
-    tt_proc_result_t owners = tt_proc_run(ls_argv, NULL, 5000);
-    if (owners.exit_code != 0 || !owners.stdout_buf)
-    {
-        tt_proc_result_free(&owners);
-        free(base);
-        return 0;
-    }
-
-    /* Make a copy to avoid strtok issues */
-    char *owners_copy = tt_strdup(owners.stdout_buf);
-    tt_proc_result_free(&owners);
-
-    if (owners_copy)
-    {
-        char *p = owners_copy;
-        while (*p)
-        {
-            char *eol = strchr(p, '\n');
-            if (eol)
-                *eol = '\0';
-
-            if (p[0] != '\0' && p[0] != '.')
-            {
-                /* Check if this is a directory */
-                char *owner_path = tt_path_join(base, p);
-                if (owner_path && tt_is_dir(owner_path))
-                {
-                    /* Scan this owner's repos */
-                    const char *repo_ls_argv[] = {"ls", "-1", owner_path, NULL};
-                    tt_proc_result_t repos = tt_proc_run(repo_ls_argv, NULL, 5000);
-                    if (repos.exit_code == 0 && repos.stdout_buf)
-                    {
-                        char *repos_copy = tt_strdup(repos.stdout_buf);
-                        tt_proc_result_free(&repos);
-
-                        if (repos_copy)
-                        {
-                            char *rp = repos_copy;
-                            while (*rp)
-                            {
-                                char *reol = strchr(rp, '\n');
-                                if (reol)
-                                    *reol = '\0';
-
-                                if (rp[0] != '\0' && rp[0] != '.')
-                                {
-                                    char *repo_path = tt_path_join(owner_path, rp);
-                                    if (repo_path && tt_is_dir(repo_path))
-                                    {
-                                        char *git_dir = tt_path_join(repo_path, ".git");
-                                        bool is_git = git_dir && tt_is_dir(git_dir);
-                                        free(git_dir);
-
-                                        if (is_git)
-                                        {
-                                            if (count >= cap)
-                                            {
-                                                int new_cap = cap ? cap * 2 : 16;
-                                                void *tmp = realloc(entries,
-                                                                    (size_t)new_cap * sizeof(entries[0]));
-                                                if (!tmp)
-                                                {
-                                                    free(repo_path);
-                                                    goto done_scan;
-                                                }
-                                                entries = tmp;
-                                                cap = new_cap;
-                                            }
-                                            entries[count].owner = tt_strdup(p);
-                                            entries[count].repo = tt_strdup(rp);
-                                            entries[count].local_path = repo_path;
-                                            repo_path = NULL;
-                                            count++;
-                                        }
-                                    }
-                                    free(repo_path);
-                                }
-
-                                if (!reol)
-                                    break;
-                                rp = reol + 1;
-                            }
-                            free(repos_copy);
-                        }
-                    }
-                    else
-                    {
-                        tt_proc_result_free(&repos);
-                    }
-                }
-                free(owner_path);
-            }
-
-            if (!eol)
-                break;
-            p = eol + 1;
-        }
-        free(owners_copy);
-    }
-
-done_scan:
+    tt_walk_dir(base, owner_scan_cb, &ctx);
     free(base);
 
-    *out_entries = entries;
-    *out_count = count;
+    *out_entries = ctx.entries;
+    *out_count = ctx.count;
     return 0;
 }
 

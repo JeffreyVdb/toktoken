@@ -39,6 +39,14 @@ bool tt_gh_authenticated(void);
  */
 int tt_gh_check(void);
 
+/*
+ * tt_gh_reset_path_cache -- Invalidate cached gh/git resolved paths.
+ *
+ * Must be called after modifying PATH in tests or when the environment
+ * changes. Without this, cached paths from previous lookups persist.
+ */
+void tt_gh_reset_path_cache(void);
+
 /* ---- Input validation ---- */
 
 /*

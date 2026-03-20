@@ -192,10 +192,19 @@ const char *tt_regex_validate(const char *pattern)
                 return "Regex rejected: nested quantifiers can cause catastrophic backtracking";
             continue;
         }
-        if (*p == '+' || *p == '*')
+        if (*p == '+' || *p == '*' || *p == '{')
         {
             if (depth > 0 && depth < 32)
                 stack[depth] = true;
+            /* Skip {n,m} body so digits/comma are not misinterpreted */
+            if (*p == '{')
+            {
+                const char *q = p + 1;
+                while (*q && *q != '}' && *q != '\0')
+                    q++;
+                if (*q == '}')
+                    p = q;
+            }
         }
     }
 
@@ -291,7 +300,7 @@ static int search_ripgrep(const char *project_root, const char **file_paths, int
 
     const char *argv[16];
     int argc = 0;
-    argv[argc++] = "rg";
+    argv[argc++] = find_ripgrep();
     argv[argc++] = "--json";
     argv[argc++] = "--max-count";
     argv[argc++] = max_count_str;

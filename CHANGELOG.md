@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **Windows argv quoting hardening** (`platform_win.c`): reimplemented command-line construction with proper `CommandLineToArgvW`-compatible escaping — backslashes before quotes are doubled, trailing backslashes before closing quote are doubled, embedded quotes escaped as `\"`. Prevents argument injection via crafted filenames or repository names on Windows.
+- **PATH resolution hardening** (`github.c`, `text_search.c`): subprocess argv[0] now uses fully-resolved absolute paths via `tt_which()` with per-session caching, preventing TOCTOU PATH hijacking. Added `tt_gh_reset_path_cache()` for test environments that manipulate PATH.
+- **ReDoS quantifier detection** (`text_search.c`): extended `tt_regex_validate()` to detect `{n,m}` repetition syntax inside groups, in addition to `+` and `*`, closing a gap in nested-quantifier ReDoS protection.
+- **Native filesystem operations** (`github.c`): replaced Unix-only `rm -rf` and `ls -1` subprocess calls with cross-platform `tt_remove_dir_recursive()` and `tt_walk_dir()` APIs, eliminating shell command dependency and potential command injection surface on all platforms.
+
 ## [0.2.0] - 2026-03-20
 
 ### Added
@@ -136,5 +145,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Diagnostic mode (`-X`) with structured JSONL output.
 - Cross-platform support: Linux (x86_64, aarch64, armv7), macOS (x86_64, aarch64), Windows (x86_64).
 
-[0.2.0]: https://github.com/mauriziofonte/toktoken/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/mauriziofonte/toktoken/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/mauriziofonte/toktoken/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/mauriziofonte/toktoken/releases/tag/v0.1.0
