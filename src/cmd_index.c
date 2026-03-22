@@ -52,7 +52,7 @@ static cJSON *make_error(const char *code, const char *message, const char *hint
 }
 
 /* Set all standard metadata after indexing */
-static void set_metadata(tt_index_store_t *store, const char *project_path)
+static void set_metadata(tt_index_store_t *store, const char *project_path, bool full)
 {
     const char *ts = tt_now_rfc3339();
     tt_store_set_metadata(store, "indexed_at", ts);
@@ -66,6 +66,8 @@ static void set_metadata(tt_index_store_t *store, const char *project_path)
     char *head = tt_git_head(project_path);
     tt_store_set_metadata(store, "git_head", head ? head : "");
     free(head);
+
+    tt_store_set_metadata(store, "full_index", full ? "1" : "0");
 }
 
 /*
@@ -388,7 +390,7 @@ cJSON *tt_cmd_index_create_exec(tt_cli_opts_t *opts)
                 "\"dur_ms\":%llu", (unsigned long long)(t5 - t0));
     }
 
-    set_metadata(&store, project_path);
+    set_metadata(&store, project_path, opts->full);
 
     /* WAL checkpoint */
     sqlite3_exec(db.db, "PRAGMA wal_checkpoint(TRUNCATE)", NULL, NULL, NULL);
@@ -567,6 +569,26 @@ cJSON *tt_cmd_index_update_exec(tt_cli_opts_t *opts)
         return err;
     }
 
+    /* Restore full_index flag: if the index was created with --full and the
+     * caller didn't explicitly pass --full, inherit it so discovery uses the
+     * same filter settings and does not mark previously-indexed files as deleted. */
+    if (!opts->full)
+    {
+        sqlite3_stmt *meta_stmt = NULL;
+        if (sqlite3_prepare_v2(db.db,
+                               "SELECT value FROM metadata WHERE key='full_index'",
+                               -1, &meta_stmt, NULL) == SQLITE_OK)
+        {
+            if (sqlite3_step(meta_stmt) == SQLITE_ROW)
+            {
+                const char *val = (const char *)sqlite3_column_text(meta_stmt, 0);
+                if (val && val[0] == '1')
+                    opts->full = true;
+            }
+            sqlite3_finalize(meta_stmt);
+        }
+    }
+
     /* Build extra ignore patterns (config + CLI merged) */
     const char **extra_ignore = build_extra_ignore(opts, &config);
 
@@ -695,7 +717,7 @@ cJSON *tt_cmd_index_update_exec(tt_cli_opts_t *opts)
             }
         }
 
-        set_metadata(&store, project_path);
+        set_metadata(&store, project_path, opts->full);
 
         cJSON *result = cJSON_CreateObject();
         cJSON_AddNumberToObject(result, "changed", 0);
@@ -949,7 +971,7 @@ cJSON *tt_cmd_index_update_exec(tt_cli_opts_t *opts)
                 use_incremental ? "true" : "false");
     }
 
-    set_metadata(&store, project_path);
+    set_metadata(&store, project_path, opts->full);
 
     /* WAL checkpoint */
     sqlite3_exec(db.db, "PRAGMA wal_checkpoint(TRUNCATE)", NULL, NULL, NULL);
