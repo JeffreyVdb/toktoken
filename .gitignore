@@ -37,6 +37,7 @@ Testing/
 *.swp
 *.swo
 *~
+.cache
 .cache/
 compile_commands.json
 
