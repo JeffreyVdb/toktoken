@@ -275,7 +275,7 @@ cJSON *tt_cmd_find_callers_exec(tt_cli_opts_t *opts)
     int limit = opts->limit > 0 ? opts->limit : 50;
     tt_caller_t *callers = NULL;
     int count = 0;
-    tt_store_find_callers(&store, query, limit, &callers, &count);
+    tt_store_find_callers(&store, query, project_path, limit, &callers, &count);
 
     cJSON *result = cJSON_CreateObject();
     cJSON_AddStringToObject(result, "symbol", query);

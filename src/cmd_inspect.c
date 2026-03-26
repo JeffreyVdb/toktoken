@@ -282,10 +282,12 @@ cJSON *tt_cmd_inspect_outline_exec(tt_cli_opts_t *opts)
     int sym_count = 0;
     tt_store_get_symbols_by_file(&store, file_path, &syms, &sym_count);
 
-    /* Parse kind filter */
+    /* Parse kind filter. Use --kind '*' to include all kinds (override
+     * the default outline filter that excludes variable/constant/parameter). */
     int kind_count = 0;
     char *invalid_kind = NULL;
-    const char **kinds = parse_kinds(opts->kind, &kind_count, &invalid_kind);
+    bool all_kinds = (opts->kind && strcmp(opts->kind, "*") == 0);
+    const char **kinds = all_kinds ? NULL : parse_kinds(opts->kind, &kind_count, &invalid_kind);
     if (invalid_kind)
     {
         free(syms);
@@ -302,14 +304,35 @@ cJSON *tt_cmd_inspect_outline_exec(tt_cli_opts_t *opts)
         return err;
     }
 
+    /* Default outline filter: when no --kind specified, exclude noise kinds
+     * (variable, constant) to show structural overview (F10).
+     * Use --kind '*' or --kind 'variable,constant,...' for full output. */
+    static const char *OUTLINE_NOISE_KINDS[] = {"variable", "constant", NULL};
+    bool use_default_filter = (!kinds || kind_count <= 0) && !all_kinds;
+
     /* Filter by kind */
     tt_symbol_result_t **filtered = calloc(sym_count > 0 ? (size_t)sym_count : 1,
                                            sizeof(tt_symbol_result_t *));
     int fcount = 0;
     for (int i = 0; i < sym_count; i++)
     {
-        if (kind_matches(tt_kind_to_str(syms[i].sym.kind), kinds, kind_count))
-            filtered[fcount++] = &syms[i];
+        const char *k = tt_kind_to_str(syms[i].sym.kind);
+        if (use_default_filter)
+        {
+            /* Exclude noise kinds by default */
+            bool excluded = false;
+            for (const char **ex = OUTLINE_NOISE_KINDS; *ex; ex++)
+            {
+                if (strcmp(k, *ex) == 0) { excluded = true; break; }
+            }
+            if (!excluded)
+                filtered[fcount++] = &syms[i];
+        }
+        else
+        {
+            if (kind_matches(k, kinds, kind_count))
+                filtered[fcount++] = &syms[i];
+        }
     }
     free((void *)kinds);
 

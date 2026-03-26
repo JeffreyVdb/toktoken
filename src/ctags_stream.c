@@ -114,6 +114,9 @@ int tt_ctags_stream_start(tt_ctags_stream_t *stream,
             "--output-format=json",
             "--fields=+neKStl",
             "--kinds-all=*",
+            "--kinds-Java=-{local}",  /* Exclude Java locals: --kinds-all=*
+                                       * triggers a ctags 5.9 bug that drops
+                                       * methods after extracting a local (F13) */
             "--extras=-{qualified}",
             "--pseudo-tags=",
             "--sort=no",

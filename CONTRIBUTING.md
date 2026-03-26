@@ -65,9 +65,11 @@ cmake --build . -j$(nproc)
 cd ..
 
 valgrind --leak-check=full --error-exitcode=1 \
-    --errors-for-leak-kinds=definite ./build-valgrind/test_unit
+    --errors-for-leak-kinds=definite \
+    --suppressions=cmake/valgrind.supp ./build-valgrind/test_unit
 valgrind --leak-check=full --error-exitcode=1 \
-    --errors-for-leak-kinds=definite ./build-valgrind/test_integration
+    --errors-for-leak-kinds=definite \
+    --suppressions=cmake/valgrind.supp ./build-valgrind/test_integration
 ```
 
 ### Adding new tests

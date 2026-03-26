@@ -461,8 +461,12 @@ TT_TEST(test_int_mcp_tools_list)
 
 TT_TEST(test_int_mcp_tools_call_dispatch)
 {
+    /* Use a controlled temp dir instead of /tmp to avoid slow
+     * scan_manifests_recursive on /tmp (which can have thousands of
+     * entries on WSL2, causing timeout under clang). */
+    create_fixture_dir();
     mcp_test_server_t ts;
-    TT_ASSERT(start_test_server(&ts, "/tmp") == 0, "start server");
+    TT_ASSERT(start_test_server(&ts, fixture_dir) == 0, "start server");
     TT_ASSERT(do_initialize(&ts) == 0, "initialize");
 
     /* Unknown tool -> -32602 */
@@ -523,6 +527,7 @@ TT_TEST(test_int_mcp_tools_call_dispatch)
     cJSON_Delete(resp);
 
     stop_test_server(&ts);
+    cleanup_fixture();
 }
 
 /* ================================================================

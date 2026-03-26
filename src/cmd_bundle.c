@@ -231,6 +231,11 @@ static cJSON *build_single_bundle(tt_index_store_t *store,
             if (sib->id && sym->id && strcmp(sib->id, sym->id) == 0)
                 continue;
 
+            /* Exclude noise kinds from bundle outline (F2) */
+            if (sib->kind == TT_KIND_VARIABLE ||
+                sib->kind == TT_KIND_CONSTANT)
+                continue;
+
             cJSON *sib_obj = cJSON_CreateObject();
             if (opts->compact) {
                 cJSON_AddStringToObject(sib_obj, "n", sib->name ? sib->name : "");
@@ -277,7 +282,7 @@ static cJSON *build_single_bundle(tt_index_store_t *store,
     if (opts->include_callers && sym->id) {
         tt_caller_t *callers = NULL;
         int caller_count = 0;
-        tt_store_find_callers(store, sym->id, 50, &callers, &caller_count);
+        tt_store_find_callers(store, sym->id, project_path, 50, &callers, &caller_count);
 
         if (caller_count > 0) {
             cJSON *callers_arr = cJSON_CreateArray();
@@ -400,6 +405,7 @@ cJSON *tt_cmd_inspect_bundle_exec(tt_cli_opts_t *opts)
     cJSON *symbols_arr = cJSON_CreateArray();
     cJSON *errors_arr = cJSON_CreateArray();
     tt_hashmap_t *seen_ids = tt_hashmap_new(64);
+    tt_hashmap_t *seen_files = tt_hashmap_new(64);
     int64_t total_raw_bytes = 0;
 
     for (int i = 0; i < id_count; i++) {
@@ -423,6 +429,20 @@ cJSON *tt_cmd_inspect_bundle_exec(tt_cli_opts_t *opts)
             cJSON_AddStringToObject(err, "error", "not_found");
             cJSON_AddItemToArray(errors_arr, err);
         } else {
+            /* Deduplicate outlines: remove outline if file already seen (F2) */
+            cJSON *def = cJSON_GetObjectItem(bundle, "definition");
+            if (def) {
+                cJSON *file_item = cJSON_GetObjectItem(def, "file");
+                const char *file_val = cJSON_GetStringValue(file_item);
+                if (file_val) {
+                    if (tt_hashmap_has(seen_files, file_val)) {
+                        cJSON_DeleteItemFromObject(bundle, "outline");
+                        cJSON_DeleteItemFromObject(bundle, "imports");
+                    } else {
+                        tt_hashmap_set(seen_files, file_val, (void *)1);
+                    }
+                }
+            }
             cJSON_AddItemToArray(symbols_arr, bundle);
             if (file_content)
                 total_raw_bytes += (int64_t)file_len;
@@ -431,6 +451,7 @@ cJSON *tt_cmd_inspect_bundle_exec(tt_cli_opts_t *opts)
     }
 
     tt_hashmap_free(seen_ids);
+    tt_hashmap_free(seen_files);
     tt_str_split_free(ids);
 
     cJSON_AddNumberToObject(result, "symbol_count", cJSON_GetArraySize(symbols_arr));

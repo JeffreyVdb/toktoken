@@ -483,6 +483,29 @@ static int parse_ctags_json_line(const char *line, size_t len,
 
     /* Normalize kind */
     tt_symbol_kind_e kind_enum = tt_kind_from_ctags(kind_buf);
+
+    /* Reclassify functions inside class/struct/trait/interface/enum scope
+     * as methods. Fixes PHP/C where ctags uses kind "function" for class
+     * methods because the parser lacks a separate "method" kind (F11). */
+    if (kind_enum == TT_KIND_FUNCTION && scope_kind && scope_kind[0])
+    {
+        char sk_lower[64];
+        size_t skl = strlen(scope_kind);
+        if (skl >= sizeof(sk_lower)) skl = sizeof(sk_lower) - 1;
+        for (size_t i = 0; i < skl; i++)
+            sk_lower[i] = (char)tolower((unsigned char)scope_kind[i]);
+        sk_lower[skl] = '\0';
+
+        if (strcmp(sk_lower, "class") == 0 ||
+            strcmp(sk_lower, "struct") == 0 ||
+            strcmp(sk_lower, "interface") == 0 ||
+            strcmp(sk_lower, "trait") == 0 ||
+            strcmp(sk_lower, "enum") == 0)
+        {
+            kind_enum = TT_KIND_METHOD;
+        }
+    }
+
     const char *norm_kind = tt_kind_to_str(kind_enum);
 
     /* Normalize language */

@@ -47,6 +47,10 @@ static const char *SKIP_DIRS[] = {
     ".idea", ".vscode",
     /* Coverage */
     "coverage", ".nyc_output", "__coverage__",
+    /* Legacy vendored assets (F20) */
+    "vendors", "app-assets",
+    /* Well-known vendored editor/library directories (F20) */
+    "codemirror", "ckeditor", "tinymce", "summernote",
     NULL};
 
 /* 67 source extensions */
@@ -962,6 +966,118 @@ static void detect_workspaces_go(tt_hashmap_t *ws, const char *root)
 }
 
 /*
+ * detect_workspaces_maven -- Parse root pom.xml for <modules> entries.
+ *
+ * Extracts each <module>name</module> as a workspace member.
+ * Maven modules are relative directory paths (e.g. "guava", "guava-bom").
+ */
+static void detect_workspaces_maven(tt_hashmap_t *ws, const char *root)
+{
+    char *pom_path = tt_path_join(root, "pom.xml");
+    if (!pom_path)
+        return;
+
+    size_t flen = 0;
+    char *content = tt_read_file(pom_path, &flen);
+    free(pom_path);
+    if (!content)
+        return;
+
+    const char *ms = strstr(content, "<modules>");
+    const char *me = ms ? strstr(ms, "</modules>") : NULL;
+    if (!ms || !me)
+    {
+        free(content);
+        return;
+    }
+
+    const char *p = ms;
+    while ((p = strstr(p, "<module>")) != NULL && p < me)
+    {
+        p += 8; /* skip "<module>" */
+        const char *end = strstr(p, "</module>");
+        if (!end || end > me)
+            break;
+        size_t len = (size_t)(end - p);
+        if (len > 0 && len < 1024)
+        {
+            char mod[1024];
+            memcpy(mod, p, len);
+            mod[len] = '\0';
+            add_workspace_glob(ws, root, mod);
+        }
+        p = end + 9;
+    }
+
+    free(content);
+}
+
+/*
+ * detect_workspaces_gradle -- Parse settings.gradle[.kts] for include entries.
+ *
+ * Matches patterns like: include 'subproject', include ':sub:project'
+ * Leading ':' is stripped, remaining ':' converted to '/'.
+ */
+static void detect_workspaces_gradle(tt_hashmap_t *ws, const char *root)
+{
+    const char *names[] = {"settings.gradle", "settings.gradle.kts", NULL};
+    for (const char **n = names; *n; n++)
+    {
+        char *path = tt_path_join(root, *n);
+        if (!path)
+            continue;
+
+        size_t flen = 0;
+        char *content = tt_read_file(path, &flen);
+        free(path);
+        if (!content)
+            continue;
+
+        const char *p = content;
+        while ((p = strstr(p, "include")) != NULL)
+        {
+            p += 7;
+            /* Skip whitespace and optional '(' */
+            while (*p == ' ' || *p == '\t' || *p == '(')
+                p++;
+
+            /* Read quoted module names separated by commas */
+            while (*p == '\'' || *p == '"')
+            {
+                char q = *p++;
+                if (*p == ':')
+                    p++; /* skip leading ':' */
+                const char *start = p;
+                while (*p && *p != q)
+                    p++;
+                if (*p == q && p > start)
+                {
+                    size_t slen = (size_t)(p - start);
+                    if (slen < 1024)
+                    {
+                        char mod[1024];
+                        memcpy(mod, start, slen);
+                        mod[slen] = '\0';
+                        /* Replace ':' with '/' for nested modules */
+                        for (char *c = mod; *c; c++)
+                            if (*c == ':')
+                                *c = '/';
+                        add_workspace_glob(ws, root, mod);
+                    }
+                    p++;
+                }
+                /* Skip comma/space between includes */
+                while (*p == ',' || *p == ' ' || *p == '\t' ||
+                       *p == '\n' || *p == '\r')
+                    p++;
+            }
+        }
+
+        free(content);
+    }
+}
+
+/*
  * detect_workspaces -- Detect monorepo workspace members from root manifests.
  *
  * Populates ff->workspace_dirs with relative paths of first-party workspace
@@ -980,6 +1096,8 @@ static void detect_workspaces(tt_file_filter_t *ff, const char *root)
     detect_workspaces_npm(ws, root);
     detect_workspaces_cargo(ws, root);
     detect_workspaces_go(ws, root);
+    detect_workspaces_maven(ws, root);
+    detect_workspaces_gradle(ws, root);
 
     ff->workspace_dirs = ws;
 }

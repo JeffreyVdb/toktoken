@@ -30,7 +30,7 @@ TT_TEST(test_symbol_kind_from_ctags_aliases)
     TT_ASSERT_EQ_INT(TT_KIND_CLASS,     tt_kind_from_ctags("struct"));
     TT_ASSERT_EQ_INT(TT_KIND_FUNCTION,  tt_kind_from_ctags("func"));
     TT_ASSERT_EQ_INT(TT_KIND_FUNCTION,  tt_kind_from_ctags("generator"));
-    TT_ASSERT_EQ_INT(TT_KIND_FUNCTION,  tt_kind_from_ctags("macro"));
+    TT_ASSERT_EQ_INT(TT_KIND_CONSTANT,  tt_kind_from_ctags("macro"));
     TT_ASSERT_EQ_INT(TT_KIND_FUNCTION,  tt_kind_from_ctags("prototype"));
     TT_ASSERT_EQ_INT(TT_KIND_METHOD,    tt_kind_from_ctags("member"));
     TT_ASSERT_EQ_INT(TT_KIND_CONSTANT,  tt_kind_from_ctags("define"));

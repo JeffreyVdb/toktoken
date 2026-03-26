@@ -196,6 +196,27 @@ int tt_score_symbol(const char *name, const char *qualified_name,
         }
     }
 
+    /* === Phase 6: Multi-term match bonus (F9) ===
+     * Reward symbols that match 2+ distinct query words across any field.
+     * +5 per additional matching word beyond the first. */
+    if (query_word_count >= 2)
+    {
+        int words_matched = 0;
+        for (int w = 0; w < query_word_count; w++)
+        {
+            if ((name && tt_strcasestr(name, query_words[w])) ||
+                (qualified_name && tt_strcasestr(qualified_name, query_words[w])) ||
+                (summary && tt_strcasestr(summary, query_words[w])) ||
+                (signature && tt_strcasestr(signature, query_words[w])) ||
+                (keywords_json && tt_strcasestr(keywords_json, query_words[w])))
+            {
+                words_matched++;
+            }
+        }
+        if (words_matched >= 2)
+            score += (words_matched - 1) * TT_WEIGHT_NAME_WORD;
+    }
+
     return score;
 }
 

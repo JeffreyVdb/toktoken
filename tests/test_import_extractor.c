@@ -155,7 +155,7 @@ TT_TEST(test_extract_c_includes)
 
     const tt_import_t *imp = find_import(imps, count, "stdio.h");
     TT_ASSERT(imp != NULL, "found <stdio.h> include");
-    if (imp) TT_ASSERT_EQ_STR(imp->import_type, "include");
+    if (imp) TT_ASSERT_EQ_STR(imp->import_type, "system_include");
 
     imp = find_import(imps, count, "myheader.h");
     TT_ASSERT(imp != NULL, "found \"myheader.h\" include");

@@ -316,7 +316,9 @@ typedef struct
 void tt_caller_free(tt_caller_t *items, int count);
 
 int tt_store_find_callers(tt_index_store_t *store,
-                           const char *symbol_id, int limit,
+                           const char *symbol_id,
+                           const char *project_root,
+                           int limit,
                            tt_caller_t **out, int *out_count);
 
 /* ---- Similar symbols (search:similar) ---- */

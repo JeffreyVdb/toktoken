@@ -115,7 +115,7 @@ TT_TEST(test_name) \
     full_ensure_index(); \
     if (!g_full_indexed) return; \
     char cmd[1024]; \
-    snprintf(cmd, sizeof(cmd), "inspect:outline \"%s\" --path %s", \
+    snprintf(cmd, sizeof(cmd), "inspect:outline \"%s\" --path %s --kind '*'", \
              file_rel, g_full_fixture); \
     cJSON *json = NULL; \
     int rc = tt_e2e_run(cmd, &json); \

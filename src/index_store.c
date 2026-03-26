@@ -659,6 +659,24 @@ int tt_store_search_symbols(tt_index_store_t *store, const char *query,
             }
         }
 
+        /* File-type bonus: implementation files rank above declarations (F5) */
+        if (sym.file) {
+            const char *ext = strrchr(sym.file, '.');
+            if (ext) {
+                if (strcmp(ext, ".c") == 0 || strcmp(ext, ".cpp") == 0 ||
+                    strcmp(ext, ".cc") == 0)
+                    score += 2.0;
+                else if (strcmp(ext, ".h") == 0 || strcmp(ext, ".hpp") == 0)
+                    score += 0.5;
+                else if (strcmp(ext, ".py") == 0 || strcmp(ext, ".java") == 0 ||
+                         strcmp(ext, ".go") == 0 || strcmp(ext, ".rs") == 0 ||
+                         strcmp(ext, ".php") == 0 || strcmp(ext, ".rb") == 0 ||
+                         strcmp(ext, ".ts") == 0 || strcmp(ext, ".js") == 0 ||
+                         strcmp(ext, ".cs") == 0 || strcmp(ext, ".swift") == 0)
+                    score += 1.0;
+            }
+        }
+
         tt_symbol_result_t *r = malloc(sizeof(tt_symbol_result_t));
         if (!r)
             break;
@@ -1606,6 +1624,8 @@ int tt_store_delete_imports_for_file(tt_index_store_t *store, const char *file_p
 /* Common file extensions to try when resolving import specifiers.
  * Grouped by language family. Order matters: try most likely first. */
 static const char *RESOLVE_EXTENSIONS[] = {
+    ".blade.php",  /* Blade templates — MUST precede .php (F17) */
+    ".html.twig",  /* Twig templates — MUST precede .html (F17) */
     ".php",
     ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", ".vue",
     ".py",
@@ -1885,7 +1905,7 @@ int tt_store_resolve_imports(tt_index_store_t *store)
     /* Step 2: Read all unresolved imports */
     sqlite3_stmt *imp_stmt = NULL;
     if (prepare(db,
-                "SELECT id, source_file, target_name FROM imports "
+                "SELECT id, source_file, target_name, import_type FROM imports "
                 "WHERE resolved_file = ''",
                 &imp_stmt) < 0)
     {
@@ -1920,6 +1940,20 @@ int tt_store_resolve_imports(tt_index_store_t *store)
         const char *source = (const char *)sqlite3_column_text(imp_stmt, 1);
         const char *target = (const char *)sqlite3_column_text(imp_stmt, 2);
         if (!target || !target[0]) continue;
+        const char *import_type = (const char *)sqlite3_column_text(imp_stmt, 3);
+
+        /* Skip system includes — #include <math.h> should not resolve to
+         * project files with coincidentally matching basenames (F1). */
+        if (import_type && strcmp(import_type, "system_include") == 0)
+            continue;
+
+        /* Skip Go stdlib imports — single-word imports without '/' or '.'
+         * are standard library packages (fmt, context, errors, etc.) (F19). */
+        if (source && import_type &&
+            strcmp(import_type, "import") == 0 &&
+            tt_str_ends_with(source, ".go") &&
+            !strchr(target, '/') && !strchr(target, '.'))
+            continue;
 
         const char *resolved = NULL;
 
@@ -1946,7 +1980,7 @@ int tt_store_resolve_imports(tt_index_store_t *store)
                 {
                     /* Try with extensions */
                     size_t rlen = strlen(rel_resolved);
-                    char *probe = malloc(rlen + 8);
+                    char *probe = malloc(rlen + 16);
                     if (probe)
                     {
                         for (int e = 0; RESOLVE_EXTENSIONS[e] && !resolved; e++)
@@ -2004,7 +2038,7 @@ int tt_store_resolve_imports(tt_index_store_t *store)
                     if (!resolved)
                     {
                         /* Try with extensions */
-                        char *probe = malloc(dir_len + tlen + 8);
+                        char *probe = malloc(dir_len + tlen + 16);
                         if (probe)
                         {
                             for (int e = 0; RESOLVE_EXTENSIONS[e] && !resolved; e++)
@@ -2620,8 +2654,35 @@ void tt_caller_free(tt_caller_t *items, int count)
     free(items);
 }
 
+/*
+ * contains_word -- Check if text contains word with word-boundary matching.
+ * Avoids false positives like matching "processAll" when searching for "process".
+ */
+static bool contains_word(const char *text, size_t text_len,
+                          const char *word, size_t word_len)
+{
+    const char *end = text + text_len;
+    const char *p = text;
+    while (p <= end - word_len)
+    {
+        p = (const char *)tt_memfind(p, (size_t)(end - p), word, word_len);
+        if (!p)
+            return false;
+        bool left_ok = (p == text) ||
+                       (!isalnum((unsigned char)p[-1]) && p[-1] != '_');
+        bool right_ok = (p + word_len >= end) ||
+                        (!isalnum((unsigned char)p[word_len]) && p[word_len] != '_');
+        if (left_ok && right_ok)
+            return true;
+        p += word_len;
+    }
+    return false;
+}
+
 int tt_store_find_callers(tt_index_store_t *store,
-                          const char *symbol_id, int limit,
+                          const char *symbol_id,
+                          const char *project_root,
+                          int limit,
                           tt_caller_t **out, int *out_count)
 {
     *out = NULL;
@@ -2644,29 +2705,28 @@ int tt_store_find_callers(tt_index_store_t *store,
 
     const char *target_file = target.sym.file;
     const char *target_name = target.sym.name;
+    size_t target_name_len = strlen(target_name);
 
     /* Step 2: Find files that import the target's file */
     tt_import_t *importers = NULL;
     int imp_count = 0;
     tt_store_get_importers(store, target_file, &importers, &imp_count);
 
-    if (imp_count == 0)
-    {
-        tt_import_array_free(importers, imp_count);
-        tt_symbol_result_free(&target);
-        return 0;
-    }
-
-    /* Step 3: In those files, find symbols whose signature references target_name */
+    /* Step 3: In importing files + same file, find symbols whose signature
+     * references target_name */
     tt_strbuf_t sql;
     tt_strbuf_init_cap(&sql, 512);
     tt_strbuf_append_str(&sql,
                          "SELECT id, file, name, kind, line, signature "
                          "FROM symbols WHERE file IN (");
 
-    /* Deduplicate importing files */
+    /* Deduplicate importing files + always include the target's own file */
     tt_array_t unique_files;
     tt_array_init(&unique_files);
+
+    /* Always include the target's own file (same-file callers) */
+    tt_array_push(&unique_files, (void *)target_file);
+
     for (int i = 0; i < imp_count; i++)
     {
         if (!importers[i].from_file)
@@ -2682,15 +2742,6 @@ int tt_store_find_callers(tt_index_store_t *store,
         }
         if (!dup)
             tt_array_push(&unique_files, importers[i].from_file);
-    }
-
-    if (unique_files.len == 0)
-    {
-        tt_strbuf_free(&sql);
-        tt_array_free(&unique_files);
-        tt_import_array_free(importers, imp_count);
-        tt_symbol_result_free(&target);
-        return 0;
     }
 
     for (size_t i = 0; i < unique_files.len; i++)
@@ -2742,6 +2793,95 @@ int tt_store_find_callers(tt_index_store_t *store,
         tt_array_push(&results, c);
     }
     sqlite3_finalize(stmt);
+
+    /* Step 4: Source-level scan — find callers by grepping actual source code.
+     * Catches OOP patterns: $this->method(), self.method(), obj.method().
+     * Only runs when project_root is available (not from pure-DB callers). */
+    if (project_root && target_name_len >= 2)
+    {
+        for (size_t fi = 0; fi < unique_files.len &&
+                            (int)results.len < limit; fi++)
+        {
+            const char *rel = unique_files.items[fi];
+            char *abs_path = tt_path_join(project_root, rel);
+            if (!abs_path)
+                continue;
+
+            size_t flen = 0;
+            char *content = tt_read_file(abs_path, &flen);
+            free(abs_path);
+            if (!content || flen == 0)
+            {
+                free(content);
+                continue;
+            }
+
+            /* Quick check: does the file even contain target_name? */
+            if (!tt_memfind(content, flen, target_name, target_name_len))
+            {
+                free(content);
+                continue;
+            }
+
+            /* Get all symbols in this file */
+            tt_symbol_result_t *file_syms = NULL;
+            int fsym_count = 0;
+            tt_store_get_symbols_by_file(store, rel, &file_syms, &fsym_count);
+
+            for (int si = 0; si < fsym_count &&
+                             (int)results.len < limit; si++)
+            {
+                tt_symbol_t *s = &file_syms[si].sym;
+
+                /* Skip target itself */
+                if (s->id && strcmp(s->id, symbol_id) == 0)
+                    continue;
+
+                /* Skip if already found by signature search */
+                bool already = false;
+                for (size_t r = 0; r < results.len; r++)
+                {
+                    tt_caller_t *ex = results.items[r];
+                    if (ex->id && s->id && strcmp(ex->id, s->id) == 0)
+                    {
+                        already = true;
+                        break;
+                    }
+                }
+                if (already)
+                    continue;
+
+                /* Extract the symbol's source range */
+                if (s->byte_offset < 0 || s->byte_length <= 0 ||
+                    s->byte_offset + s->byte_length > (int)flen)
+                    continue;
+
+                /* Check if symbol body contains target_name as a word */
+                if (contains_word(content + s->byte_offset,
+                                  (size_t)s->byte_length,
+                                  target_name, target_name_len))
+                {
+                    tt_caller_t *c = calloc(1, sizeof(*c));
+                    if (c)
+                    {
+                        c->id = s->id ? strdup(s->id) : NULL;
+                        c->file = s->file ? strdup(s->file) : NULL;
+                        c->name = s->name ? strdup(s->name) : NULL;
+                        c->kind = strdup(tt_kind_to_str(s->kind));
+                        c->line = s->line;
+                        c->signature = s->signature ? strdup(s->signature) : NULL;
+                        tt_array_push(&results, c);
+                    }
+                }
+            }
+
+            for (int si = 0; si < fsym_count; si++)
+                tt_symbol_result_free(&file_syms[si]);
+            free(file_syms);
+            free(content);
+        }
+    }
+
     tt_array_free(&unique_files);
     tt_import_array_free(importers, imp_count);
     tt_symbol_result_free(&target);

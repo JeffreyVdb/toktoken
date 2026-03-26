@@ -1,0 +1,54 @@
+# valgrind.supp -- Suppression file for known false positives
+#
+# Usage:
+#   valgrind --suppressions=valgrind.supp --leak-check=full ...
+#
+# These suppress known glibc false positives:
+#
+# 1. TLS (Thread Local Storage) cache: pthread_create retains allocations
+#    from allocate_dtv even after pthread_join. By design in glibc.
+#
+# 2. setenv() environment tree: __add_to_environ uses tsearch to manage
+#    the global environ, allocating memory that persists until exit.
+#    Not a leak — it's process-lifetime global state.
+
+{
+   glibc-tls-allocate-dtv
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:calloc
+   fun:allocate_dtv
+   fun:_dl_allocate_tls
+   fun:allocate_stack
+   fun:pthread_create@@GLIBC_*
+}
+
+{
+   glibc-tls-allocate-dtv-entry
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:calloc
+   ...
+   fun:_dl_allocate_tls
+   fun:allocate_stack
+   fun:pthread_create@@GLIBC_*
+}
+
+{
+   glibc-setenv-tsearch
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:tsearch
+   fun:__add_to_environ
+   fun:setenv
+}
+
+{
+   glibc-setenv-add-to-environ
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:__add_to_environ
+   fun:setenv
+}

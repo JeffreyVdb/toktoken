@@ -76,7 +76,7 @@ static const ctags_map_entry_t CTAGS_MAP[] = {
     {"packagename", TT_KIND_NAMESPACE},
     {"module", TT_KIND_NAMESPACE},
     {"implementation", TT_KIND_CLASS},
-    {"macro", TT_KIND_FUNCTION},
+    {"macro", TT_KIND_CONSTANT},
     {"enumconstant", TT_KIND_CONSTANT},
     {"field", TT_KIND_PROPERTY},
     {"prototype", TT_KIND_FUNCTION},

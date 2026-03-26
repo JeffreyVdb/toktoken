@@ -72,13 +72,15 @@ jobs:
             -DCMAKE_C_FLAGS="-g -O0"
           cmake --build build-vg -j$(nproc)
           valgrind --leak-check=full --error-exitcode=1 \
-            --errors-for-leak-kinds=definite ./build-vg/test_unit
+            --errors-for-leak-kinds=definite \
+            --suppressions=cmake/valgrind.supp ./build-vg/test_unit
 
       - name: Valgrind (integration)
         if: matrix.compiler == 'gcc'
         run: |
           valgrind --leak-check=full --error-exitcode=1 \
-            --errors-for-leak-kinds=definite ./build-vg/test_integration
+            --errors-for-leak-kinds=definite \
+            --suppressions=cmake/valgrind.supp ./build-vg/test_integration
 
   test-macos:
     runs-on: macos-latest

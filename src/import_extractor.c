@@ -200,6 +200,18 @@ static void extract_python(const char *from_file, const char *line, int line_num
     }
 }
 
+/* Validate Go import path: must be printable ASCII, no spaces/tabs (F18). */
+static bool is_valid_go_import(const char *spec)
+{
+    if (!spec || !spec[0]) return false;
+    for (const char *p = spec; *p; p++)
+    {
+        if (*p == ' ' || *p == '\t' || (unsigned char)*p < 0x20 || (unsigned char)*p > 0x7e)
+            return false;
+    }
+    return true;
+}
+
 /* Go: import "..." or import (...) block -- simplified single-line */
 static void extract_go(const char *from_file, const char *line, int line_num,
                        tt_import_t **arr, int *count, int *cap)
@@ -217,7 +229,8 @@ static void extract_go(const char *from_file, const char *line, int line_num,
         if (*q == '"') {
             char *spec = read_quoted(&q);
             if (spec) {
-                add_import(arr, count, cap, from_file, spec, NULL, line_num, "import");
+                if (is_valid_go_import(spec))
+                    add_import(arr, count, cap, from_file, spec, NULL, line_num, "import");
                 free(spec);
             }
         }
@@ -228,7 +241,8 @@ static void extract_go(const char *from_file, const char *line, int line_num,
     if (*p == '"') {
         char *spec = read_quoted(&p);
         if (spec) {
-            add_import(arr, count, cap, from_file, spec, NULL, line_num, "import");
+            if (is_valid_go_import(spec))
+                add_import(arr, count, cap, from_file, spec, NULL, line_num, "import");
             free(spec);
         }
     }
@@ -296,7 +310,7 @@ static void extract_c(const char *from_file, const char *line, int line_num,
         while (*p && *p != '>' && *p != '\n') p++;
         if (*p == '>' && p > start) {
             char *spec = tt_strndup(start, (size_t)(p - start));
-            add_import(arr, count, cap, from_file, spec, NULL, line_num, "include");
+            add_import(arr, count, cap, from_file, spec, NULL, line_num, "system_include");
             free(spec);
         }
     }

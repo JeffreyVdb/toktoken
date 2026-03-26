@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] (unreleased) - 2026-03-26
+
+### Fixed
+
+- **System header resolution**: `#include <math.h>` (angle-bracket includes) no longer resolves to project files. System includes are tagged `import_type: "system_include"` and skipped during resolution.
+- **Bundle outline deduplication**: multi-symbol bundles now include each file's outline only once. Outline excludes `variable` and `constant` kinds from sibling context, reducing bundle output ~60%.
+- **`find:callers` source-level scan**: after the SQL-based signature search, `find:callers` now reads actual source files for symbols in scope (target file + importers), extracts symbol bodies via `byte_offset`/`byte_length`, and checks for word-boundary matches. Detects OOP calls like `$this->method()`, `self.method()`, `obj.call()` that don't appear in signatures.
+- **C macro kind mapping**: `#define` macros now map to `constant` (was `function`). `--kind function` no longer returns preprocessor macros.
+- **PHP/C method reclassification**: ctags `function` symbols with `scopeKind: class/struct/interface/trait/enum` are reclassified to `method`. `search:symbols --kind method` now works correctly on PHP and C codebases.
+- **Java ctags scope tracking**: added `--kinds-Java=-{local}` to ctags invocation to prevent a ctags 5.9.0 bug where enabling local variable extraction corrupts Java scope tracking and drops methods.
+- **Blade/Twig import resolution**: added `.blade.php` and `.html.twig` to resolver extensions (before `.php`). Combined with dot-to-slash normalization, Blade `@extends('layouts.app')` now resolves to `resources/views/layouts/app.blade.php`.
+- **Go import path validation**: import paths containing spaces or non-printable characters are rejected, eliminating junk entries from test string literals in large Go codebases.
+- **Go stdlib import skip**: single-word Go imports without `/` or `.` (e.g., `fmt`, `context`, `errors`) are skipped during resolution, eliminating false edges in Go projects.
+- **MCP backslash normalization**: PHP namespace symbol IDs (e.g., `App\Models\Event`) are double-escaped by JSON transport. Added normalization to collapse `\\` to `\` in all MCP executors that accept symbol IDs (`inspect:symbol`, `inspect:bundle`, `find:callers`, `search:similar`, `inspect:blast-radius`).
+
+### Changed
+
+- **Default outline kind filter**: `inspect:outline` now excludes `variable` and `constant` kinds by default, showing only structural symbols (classes, functions, methods, etc.). Use `--kind '*'` for all kinds.
+- **Search ranking — file-type bonus**: implementation files (`.c`, `.py`, `.java`, etc.) rank higher than header/declaration files (`.h`, `.hpp`) in search results.
+- **Search ranking — multi-term bonus**: symbols matching 2+ distinct query words across name, signature, summary, and keywords receive a cumulative score bonus (+5 per additional word).
+- **`suggest` keyword stopwords**: `suggest` now filters common parameter names (`self`, `this`, `ctx`, `err`, `argv`, etc.), PHP/Laravel lifecycle methods (`__construct`, `boot`, `handle`, `fillable`, etc.), and JS/TS boilerplate (`constructor`, `prototype`, `export`, `require`, etc.) from top keywords, surfacing domain-specific terms.
+- **Maven/Gradle workspace detection**: smart filter now parses `pom.xml` `<modules>` and `settings.gradle` `include` directives to identify workspace modules, preventing false-positive vendor pruning of monorepo subdirectories.
+- **Vendor directory exclusion**: added `vendors`, `app-assets`, `codemirror`, `ckeditor`, `tinymce`, `summernote` to the skip-directories list.
+- **Import resolver buffer size**: increased from +8 to +16 bytes to safely handle compound extensions like `.blade.php` (10 chars).
+
 ## [0.4.0] - 2026-03-24
 
 ### Changed

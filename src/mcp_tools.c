@@ -23,6 +23,36 @@
 #include <stdlib.h>
 #include <string.h>
 
+/*
+ * Collapse double backslashes to single in symbol IDs.
+ * MCP JSON transport double-escapes backslashes in PHP/C++ namespace
+ * separators (App\\Models\\Event -> App\Models\Event). [caller-frees]
+ */
+static char *mcp_normalize_id(const char *id)
+{
+    if (!id)
+        return NULL;
+    size_t len = strlen(id);
+    char *out = malloc(len + 1);
+    if (!out)
+        return strdup(id);
+    size_t j = 0;
+    for (size_t i = 0; i < len; i++)
+    {
+        if (id[i] == '\\' && i + 1 < len && id[i + 1] == '\\')
+        {
+            out[j++] = '\\';
+            i++; /* skip second backslash */
+        }
+        else
+        {
+            out[j++] = id[i];
+        }
+    }
+    out[j] = '\0';
+    return out;
+}
+
 /* ---- Progress callback for MCP ---- */
 
 static void mcp_progress_cb(void *ctx, int64_t done, int64_t total)
@@ -541,7 +571,7 @@ static cJSON *execute_inspect_symbol(struct tt_mcp_server_t *srv,
     init_opts_from_args(&opts, srv, arguments);
 
     /* Split comma-separated IDs into positional args */
-    char *id_buf = strdup(id);
+    char *id_buf = mcp_normalize_id(id);
     const char *ids[64];
     int id_count = 0;
     char *tok = strtok(id_buf, ",");
@@ -788,10 +818,12 @@ static cJSON *execute_inspect_bundle(struct tt_mcp_server_t *srv,
     if (!id || id[0] == '\0')
         return mcp_tool_error("Missing required parameter: id");
 
+    char *norm_id = mcp_normalize_id(id);
+
     tt_cli_opts_t opts;
     init_opts_from_args(&opts, srv, arguments);
 
-    const char *positional[1] = {id};
+    const char *positional[1] = {norm_id};
     opts.positional = positional;
     opts.positional_count = 1;
 
@@ -807,11 +839,15 @@ static cJSON *execute_inspect_bundle(struct tt_mcp_server_t *srv,
 
     cJSON *result = tt_cmd_inspect_bundle_exec(&opts);
     if (!result)
+    {
+        free(norm_id);
         return mcp_tool_error(tt_error_get());
+    }
 
     if (output_format && strcmp(output_format, "markdown") == 0) {
         char *md = tt_bundle_render_markdown(result);
         cJSON_Delete(result);
+        free(norm_id);
         if (!md)
             return mcp_tool_error("Failed to render markdown");
         cJSON *wrap = cJSON_CreateObject();
@@ -820,6 +856,7 @@ static cJSON *execute_inspect_bundle(struct tt_mcp_server_t *srv,
         return wrap;
     }
 
+    free(norm_id);
     return result;
 }
 
@@ -934,10 +971,11 @@ static cJSON *execute_find_callers(struct tt_mcp_server_t *srv,
     if (!id || id[0] == '\0')
         return mcp_tool_error("Missing required parameter: id");
 
+    char *norm_id = mcp_normalize_id(id);
     tt_cli_opts_t opts;
     init_opts_from_args(&opts, srv, arguments);
 
-    const char *positional[1] = {id};
+    const char *positional[1] = {norm_id};
     opts.positional = positional;
     opts.positional_count = 1;
 
@@ -945,6 +983,7 @@ static cJSON *execute_find_callers(struct tt_mcp_server_t *srv,
         opts.limit = mcp_get_int_or_default(arguments, "limit", 0);
 
     cJSON *result = tt_cmd_find_callers_exec(&opts);
+    free(norm_id);
     if (!result)
         return mcp_tool_error(tt_error_get());
     return result;
@@ -1029,10 +1068,11 @@ static cJSON *execute_search_similar(struct tt_mcp_server_t *srv,
     if (!id || id[0] == '\0')
         return mcp_tool_error("Missing required parameter: id");
 
+    char *norm_id = mcp_normalize_id(id);
     tt_cli_opts_t opts;
     init_opts_from_args(&opts, srv, arguments);
 
-    const char *positional[1] = {id};
+    const char *positional[1] = {norm_id};
     opts.positional = positional;
     opts.positional_count = 1;
 
@@ -1040,6 +1080,7 @@ static cJSON *execute_search_similar(struct tt_mcp_server_t *srv,
         opts.limit = mcp_get_int_or_default(arguments, "limit", 0);
 
     cJSON *result = tt_cmd_search_similar_exec(&opts);
+    free(norm_id);
     if (!result)
         return mcp_tool_error(tt_error_get());
     return result;
@@ -1288,13 +1329,15 @@ static cJSON *execute_inspect_blast_radius(struct tt_mcp_server_t *srv,
     if (!id || !id[0])
         return mcp_tool_error("Missing required parameter: id");
 
-    opts.search = id;
+    char *norm_id = mcp_normalize_id(id);
+    opts.search = norm_id;
 
     int depth = mcp_get_int_or_default(arguments, "depth", 0);
     if (depth > 0)
         opts.depth = depth;
 
     cJSON *result = tt_cmd_inspect_blast_exec(&opts);
+    free(norm_id);
     if (!result)
         return mcp_tool_error(tt_error_get());
     return result;

@@ -38,10 +38,29 @@ static cJSON *query_top_keywords(sqlite3 *db, int limit)
     cJSON *arr = cJSON_CreateArray();
 
     /* Use symbol names directly, sorted by frequency.
-     * This is a pragmatic approach: group by lowercased name. */
+     * This is a pragmatic approach: group by lowercased name.
+     * Excludes common parameter/variable names that are noise (F7). */
     const char *sql =
         "SELECT LOWER(name), COUNT(*) AS freq FROM symbols "
         "WHERE LENGTH(name) > 2 "
+        "AND LOWER(name) NOT IN ("
+        "'self','this','ctx','err','error','argv','argc',"
+        "'ptr','len','buf','ret','tmp','key','value',"
+        "'name','type','size','data','result','status',"
+        "'config','options','args','kwargs','index','count',"
+        "'str','msg','val','obj','res','req','cmd','fmt',"
+        "'null','nil','true','false','none','new','get','set',"
+        /* PHP/Laravel lifecycle methods */
+        "'__construct','__destruct','__call','__get','__set',"
+        "'__isset','__unset','__tostring','__invoke',"
+        "'up','down','run','boot','register','handle',"
+        "'fillable','casts','rules','messages',"
+        /* Test lifecycle */
+        "'setup','teardown','test','invoke','tostring',"
+        /* Common JS/TS patterns */
+        "'default','export','import','module','require',"
+        "'constructor','prototype','undefined'"
+        ") "
         "GROUP BY LOWER(name) ORDER BY freq DESC LIMIT ?";
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK)
