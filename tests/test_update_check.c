@@ -7,6 +7,7 @@
  */
 
 #include "test_framework.h"
+#include "test_helpers.h"
 #include "update_check.h"
 #include "platform.h"
 #include "sha256_util.h"
@@ -165,8 +166,12 @@ TT_TEST(test_self_exe_path_is_absolute)
 
 TT_TEST(test_rename_basic)
 {
-    const char *src = "/tmp/tt_rename_basic_src";
-    const char *dst = "/tmp/tt_rename_basic_dst";
+    char *tmpdir = tt_test_tmpdir();
+    TT_ASSERT_NOT_NULL(tmpdir);
+
+    char src[512], dst[512];
+    snprintf(src, sizeof(src), "%s/tt_rename_basic_src", tmpdir);
+    snprintf(dst, sizeof(dst), "%s/tt_rename_basic_dst", tmpdir);
 
     tt_write_file(src, "data", 4);
     TT_ASSERT_TRUE(tt_file_exists(src));
@@ -182,12 +187,18 @@ TT_TEST(test_rename_basic)
     TT_ASSERT_EQ_STR("data", content);
     free(content);
     tt_remove_file(dst);
+    tt_test_rmdir(tmpdir);
+    free(tmpdir);
 }
 
 TT_TEST(test_rename_overwrite_existing)
 {
-    const char *src = "/tmp/tt_rename_ow_src";
-    const char *dst = "/tmp/tt_rename_ow_dst";
+    char *tmpdir = tt_test_tmpdir();
+    TT_ASSERT_NOT_NULL(tmpdir);
+
+    char src[512], dst[512];
+    snprintf(src, sizeof(src), "%s/tt_rename_ow_src", tmpdir);
+    snprintf(dst, sizeof(dst), "%s/tt_rename_ow_dst", tmpdir);
 
     tt_write_file(dst, "old_content", 11);
     tt_write_file(src, "new_content", 11);
@@ -201,6 +212,8 @@ TT_TEST(test_rename_overwrite_existing)
     TT_ASSERT_EQ_STR("new_content", content);
     free(content);
     tt_remove_file(dst);
+    tt_test_rmdir(tmpdir);
+    free(tmpdir);
 }
 
 TT_TEST(test_rename_null_args)
@@ -212,29 +225,49 @@ TT_TEST(test_rename_null_args)
 
 TT_TEST(test_rename_nonexistent_source)
 {
-    /* Renaming a file that doesn't exist should fail */
-    int rc = tt_rename_file("/tmp/tt_does_not_exist_82719", "/tmp/tt_rename_dst_x");
+    char *tmpdir = tt_test_tmpdir();
+    TT_ASSERT_NOT_NULL(tmpdir);
+
+    char src[512], dst[512];
+    snprintf(src, sizeof(src), "%s/tt_does_not_exist_82719", tmpdir);
+    snprintf(dst, sizeof(dst), "%s/tt_rename_dst_x", tmpdir);
+
+    int rc = tt_rename_file(src, dst);
     TT_ASSERT_EQ_INT(-1, rc);
+
+    tt_test_rmdir(tmpdir);
+    free(tmpdir);
 }
 
 TT_TEST(test_rename_to_nonexistent_dir)
 {
-    /* Renaming to a path where the parent dir doesn't exist should fail */
-    const char *src = "/tmp/tt_rename_nodir_src";
+    char *tmpdir = tt_test_tmpdir();
+    TT_ASSERT_NOT_NULL(tmpdir);
+
+    char src[512], dst[512];
+    snprintf(src, sizeof(src), "%s/tt_rename_nodir_src", tmpdir);
+    snprintf(dst, sizeof(dst), "%s/tt_nonexistent_dir_82719/file", tmpdir);
+
     tt_write_file(src, "x", 1);
 
-    int rc = tt_rename_file(src, "/tmp/tt_nonexistent_dir_82719/file");
+    int rc = tt_rename_file(src, dst);
     TT_ASSERT_EQ_INT(-1, rc);
 
     /* Source should still exist */
     TT_ASSERT_TRUE(tt_file_exists(src));
     tt_remove_file(src);
+    tt_test_rmdir(tmpdir);
+    free(tmpdir);
 }
 
 TT_TEST(test_rename_empty_file)
 {
-    const char *src = "/tmp/tt_rename_empty_src";
-    const char *dst = "/tmp/tt_rename_empty_dst";
+    char *tmpdir = tt_test_tmpdir();
+    TT_ASSERT_NOT_NULL(tmpdir);
+
+    char src[512], dst[512];
+    snprintf(src, sizeof(src), "%s/tt_rename_empty_src", tmpdir);
+    snprintf(dst, sizeof(dst), "%s/tt_rename_empty_dst", tmpdir);
 
     tt_write_file(src, "", 0);
     TT_ASSERT_TRUE(tt_file_exists(src));
@@ -247,6 +280,8 @@ TT_TEST(test_rename_empty_file)
     TT_ASSERT_EQ_INT(0, (int)sz);
 
     tt_remove_file(dst);
+    tt_test_rmdir(tmpdir);
+    free(tmpdir);
 }
 
 /* ================================================================
@@ -256,7 +291,11 @@ TT_TEST(test_rename_empty_file)
 TT_TEST(test_file_set_executable_basic)
 {
 #ifndef TT_PLATFORM_WINDOWS
-    const char *path = "/tmp/tt_chmod_test";
+    char *tmpdir = tt_test_tmpdir();
+    TT_ASSERT_NOT_NULL(tmpdir);
+
+    char path[512];
+    snprintf(path, sizeof(path), "%s/tt_chmod_test", tmpdir);
     tt_write_file(path, "#!/bin/sh\necho hi\n", 18);
 
     int rc = tt_file_set_executable(path);
@@ -270,20 +309,33 @@ TT_TEST(test_file_set_executable_basic)
     TT_ASSERT_TRUE((st.st_mode & S_IXOTH) != 0);
 
     tt_remove_file(path);
+    tt_test_rmdir(tmpdir);
+    free(tmpdir);
 #endif
 }
 
 TT_TEST(test_file_set_executable_null)
 {
     int rc = tt_file_set_executable(NULL);
+#ifdef TT_PLATFORM_WINDOWS
+    /* Windows no-op: returns 0 for everything including NULL */
+    TT_ASSERT_EQ_INT(0, rc);
+#else
     TT_ASSERT_EQ_INT(-1, rc);
+#endif
 }
 
 TT_TEST(test_file_set_executable_nonexistent)
 {
 #ifndef TT_PLATFORM_WINDOWS
-    int rc = tt_file_set_executable("/tmp/tt_chmod_nonexistent_82719");
+    char *tmpdir = tt_test_tmpdir();
+    TT_ASSERT_NOT_NULL(tmpdir);
+    char path[512];
+    snprintf(path, sizeof(path), "%s/tt_chmod_nonexistent_82719", tmpdir);
+    int rc = tt_file_set_executable(path);
     TT_ASSERT_EQ_INT(-1, rc);
+    tt_test_rmdir(tmpdir);
+    free(tmpdir);
 #endif
 }
 
@@ -361,8 +413,11 @@ TT_TEST(test_build_result_older_upstream)
 
 TT_TEST(test_cache_file_with_trailing_newline)
 {
-    /* VERSION files typically have a trailing newline: "1.2.3\n" */
-    const char *path = "/tmp/tt_test_version_nl";
+    char *tmpdir = tt_test_tmpdir();
+    TT_ASSERT_NOT_NULL(tmpdir);
+
+    char path[512];
+    snprintf(path, sizeof(path), "%s/tt_test_version_nl", tmpdir);
     tt_write_file(path, "1.2.3\n", 6);
 
     size_t len = 0;
@@ -378,12 +433,17 @@ TT_TEST(test_cache_file_with_trailing_newline)
     TT_ASSERT_EQ_STR("1.2.3", content);
     free(content);
     tt_remove_file(path);
+    tt_test_rmdir(tmpdir);
+    free(tmpdir);
 }
 
 TT_TEST(test_cache_file_with_crlf)
 {
-    /* Windows-style line endings */
-    const char *path = "/tmp/tt_test_version_crlf";
+    char *tmpdir = tt_test_tmpdir();
+    TT_ASSERT_NOT_NULL(tmpdir);
+
+    char path[512];
+    snprintf(path, sizeof(path), "%s/tt_test_version_crlf", tmpdir);
     tt_write_file(path, "1.2.3\r\n", 7);
 
     size_t len = 0;
@@ -396,12 +456,17 @@ TT_TEST(test_cache_file_with_crlf)
     TT_ASSERT_EQ_STR("1.2.3", content);
     free(content);
     tt_remove_file(path);
+    tt_test_rmdir(tmpdir);
+    free(tmpdir);
 }
 
 TT_TEST(test_cache_file_empty)
 {
-    /* Empty file should be treated as "no version available" */
-    const char *path = "/tmp/tt_test_version_empty";
+    char *tmpdir = tt_test_tmpdir();
+    TT_ASSERT_NOT_NULL(tmpdir);
+
+    char path[512];
+    snprintf(path, sizeof(path), "%s/tt_test_version_empty", tmpdir);
     tt_write_file(path, "", 0);
 
     size_t len = 0;
@@ -410,6 +475,8 @@ TT_TEST(test_cache_file_empty)
     TT_ASSERT_TRUE(content == NULL || len == 0);
     free(content);
     tt_remove_file(path);
+    tt_test_rmdir(tmpdir);
+    free(tmpdir);
 }
 
 TT_TEST(test_cache_file_garbage)
@@ -437,7 +504,11 @@ TT_TEST(test_cache_file_html_404)
 
 TT_TEST(test_sha256_file_known_content)
 {
-    const char *path = "/tmp/tt_test_sha256_content";
+    char *tmpdir = tt_test_tmpdir();
+    TT_ASSERT_NOT_NULL(tmpdir);
+
+    char path[512];
+    snprintf(path, sizeof(path), "%s/tt_test_sha256_content", tmpdir);
     tt_write_file(path, "toktoken", 8);
 
     char *hash = tt_sha256_file(path);
@@ -456,19 +527,30 @@ TT_TEST(test_sha256_file_known_content)
     }
     free(hash);
     tt_remove_file(path);
+    tt_test_rmdir(tmpdir);
+    free(tmpdir);
 }
 
 TT_TEST(test_sha256_file_nonexistent)
 {
-    char *hash = tt_sha256_file("/tmp/tt_sha256_nonexistent_82719");
+    char *tmpdir = tt_test_tmpdir();
+    TT_ASSERT_NOT_NULL(tmpdir);
+    char path[512];
+    snprintf(path, sizeof(path), "%s/tt_sha256_nonexistent_82719", tmpdir);
+    char *hash = tt_sha256_file(path);
     TT_ASSERT_NULL(hash);
+    tt_test_rmdir(tmpdir);
+    free(tmpdir);
 }
 
 TT_TEST(test_sha256_file_consistency)
 {
-    /* Same content should produce same hash */
-    const char *path1 = "/tmp/tt_sha256_c1";
-    const char *path2 = "/tmp/tt_sha256_c2";
+    char *tmpdir = tt_test_tmpdir();
+    TT_ASSERT_NOT_NULL(tmpdir);
+
+    char path1[512], path2[512];
+    snprintf(path1, sizeof(path1), "%s/tt_sha256_c1", tmpdir);
+    snprintf(path2, sizeof(path2), "%s/tt_sha256_c2", tmpdir);
     tt_write_file(path1, "same content", 12);
     tt_write_file(path2, "same content", 12);
 
@@ -482,13 +564,18 @@ TT_TEST(test_sha256_file_consistency)
     free(h2);
     tt_remove_file(path1);
     tt_remove_file(path2);
+    tt_test_rmdir(tmpdir);
+    free(tmpdir);
 }
 
 TT_TEST(test_sha256_file_different_content)
 {
-    /* Different content should produce different hash */
-    const char *path1 = "/tmp/tt_sha256_d1";
-    const char *path2 = "/tmp/tt_sha256_d2";
+    char *tmpdir = tt_test_tmpdir();
+    TT_ASSERT_NOT_NULL(tmpdir);
+
+    char path1[512], path2[512];
+    snprintf(path1, sizeof(path1), "%s/tt_sha256_d1", tmpdir);
+    snprintf(path2, sizeof(path2), "%s/tt_sha256_d2", tmpdir);
     tt_write_file(path1, "content A", 9);
     tt_write_file(path2, "content B", 9);
 
@@ -502,6 +589,8 @@ TT_TEST(test_sha256_file_different_content)
     free(h2);
     tt_remove_file(path1);
     tt_remove_file(path2);
+    tt_test_rmdir(tmpdir);
+    free(tmpdir);
 }
 
 /* ================================================================

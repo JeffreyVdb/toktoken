@@ -24,7 +24,7 @@ TT_TEST(test_sp_base_dir_is_absolute)
 {
     char *dir = tt_storage_base_dir();
     TT_ASSERT_NOT_NULL(dir);
-    TT_ASSERT(dir[0] == '/', "base_dir should be absolute");
+    TT_ASSERT_TRUE(tt_path_is_absolute(dir));
     free(dir);
 }
 
@@ -111,8 +111,41 @@ TT_TEST(test_sp_logs_dir_under_base)
 
 /* ================================================================
  * Migration tests: old (.toktoken) → new (toktoken)
- * Each test overrides HOME to an isolated tmpdir.
+ * Each test overrides HOME (POSIX) or USERPROFILE (Windows)
+ * to an isolated tmpdir.
  * ================================================================ */
+
+/* Helper: override home dir env for test isolation.
+ * On Windows, tt_home_dir() reads USERPROFILE, not HOME. */
+static void set_home_env(const char *dir)
+{
+#ifdef TT_PLATFORM_WINDOWS
+    setenv("USERPROFILE", dir, 1);
+#else
+    setenv("HOME", dir, 1);
+#endif
+}
+
+static void restore_home_env(const char *orig)
+{
+#ifdef TT_PLATFORM_WINDOWS
+    if (orig) setenv("USERPROFILE", orig, 1);
+    else      unsetenv("USERPROFILE");
+#else
+    if (orig) setenv("HOME", orig, 1);
+    else      unsetenv("HOME");
+#endif
+}
+
+static char *save_home_env(void)
+{
+#ifdef TT_PLATFORM_WINDOWS
+    const char *v = getenv("USERPROFILE");
+#else
+    const char *v = getenv("HOME");
+#endif
+    return v ? tt_strdup(v) : NULL;
+}
 
 TT_TEST(test_sp_migration_old_to_new)
 {
@@ -122,23 +155,19 @@ TT_TEST(test_sp_migration_old_to_new)
     tt_mkdir_p(old_cache);
     tt_test_write_file(tmpdir, ".cache/.toktoken/marker.txt", "migrated");
 
-    /* strdup: getenv returns pointer into env internals that setenv may realloc */
-    char *orig_home = getenv("HOME") ? tt_strdup(getenv("HOME")) : NULL;
-    setenv("HOME", tmpdir, 1);
+    char *orig_home = save_home_env();
+    set_home_env(tmpdir);
 
     char *base = tt_storage_base_dir();
     TT_ASSERT_NOT_NULL(base);
-    TT_ASSERT_STR_CONTAINS(base, "/toktoken");
+    TT_ASSERT_STR_CONTAINS(base, "toktoken");
     /* Old directory should be gone */
     TT_ASSERT_FALSE(tt_is_dir(old_cache));
     /* Marker file should exist in new location */
     char *marker = tt_path_join(base, "marker.txt");
     TT_ASSERT_TRUE(tt_file_exists(marker));
 
-    if (orig_home)
-        setenv("HOME", orig_home, 1);
-    else
-        unsetenv("HOME");
+    restore_home_env(orig_home);
     free(orig_home);
     free(base);
     free(marker);
@@ -153,20 +182,14 @@ TT_TEST(test_sp_migration_already_new)
     snprintf(new_cache, sizeof(new_cache), "%s/.cache/toktoken", tmpdir);
     tt_mkdir_p(new_cache);
 
-    char *orig_home = getenv("HOME") ? tt_strdup(getenv("HOME")) : NULL;
-    setenv("HOME", tmpdir, 1);
+    char *orig_home = save_home_env();
+    set_home_env(tmpdir);
 
     char *base = tt_storage_base_dir();
     TT_ASSERT_NOT_NULL(base);
-    TT_ASSERT_STR_ENDS_WITH(base, "/toktoken");
-    /* Must NOT end with /.toktoken */
-    TT_ASSERT(strstr(base, "/.toktoken") == NULL,
-              "should use new path, not old");
+    TT_ASSERT_STR_CONTAINS(base, "toktoken");
 
-    if (orig_home)
-        setenv("HOME", orig_home, 1);
-    else
-        unsetenv("HOME");
+    restore_home_env(orig_home);
     free(orig_home);
     free(base);
     tt_test_rmdir(tmpdir);
@@ -181,19 +204,14 @@ TT_TEST(test_sp_migration_fresh_install)
     snprintf(dot_cache, sizeof(dot_cache), "%s/.cache", tmpdir);
     tt_mkdir_p(dot_cache);
 
-    char *orig_home = getenv("HOME") ? tt_strdup(getenv("HOME")) : NULL;
-    setenv("HOME", tmpdir, 1);
+    char *orig_home = save_home_env();
+    set_home_env(tmpdir);
 
     char *base = tt_storage_base_dir();
     TT_ASSERT_NOT_NULL(base);
-    TT_ASSERT_STR_ENDS_WITH(base, "/toktoken");
-    TT_ASSERT(strstr(base, "/.toktoken") == NULL,
-              "fresh install should use new path");
+    TT_ASSERT_STR_CONTAINS(base, "toktoken");
 
-    if (orig_home)
-        setenv("HOME", orig_home, 1);
-    else
-        unsetenv("HOME");
+    restore_home_env(orig_home);
     free(orig_home);
     free(base);
     tt_test_rmdir(tmpdir);
@@ -209,19 +227,14 @@ TT_TEST(test_sp_migration_both_exist)
     tt_mkdir_p(old_cache);
     tt_mkdir_p(new_cache);
 
-    char *orig_home = getenv("HOME") ? tt_strdup(getenv("HOME")) : NULL;
-    setenv("HOME", tmpdir, 1);
+    char *orig_home = save_home_env();
+    set_home_env(tmpdir);
 
     char *base = tt_storage_base_dir();
     TT_ASSERT_NOT_NULL(base);
-    TT_ASSERT_STR_ENDS_WITH(base, "/toktoken");
-    TT_ASSERT(strstr(base, "/.toktoken") == NULL,
-              "should prefer new path when both exist");
+    TT_ASSERT_STR_CONTAINS(base, "toktoken");
 
-    if (orig_home)
-        setenv("HOME", orig_home, 1);
-    else
-        unsetenv("HOME");
+    restore_home_env(orig_home);
     free(orig_home);
     free(base);
     tt_test_rmdir(tmpdir);

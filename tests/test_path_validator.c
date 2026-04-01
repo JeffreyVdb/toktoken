@@ -17,7 +17,11 @@
 
 TT_TEST(test_pv_validate_same_directory)
 {
-    TT_ASSERT_TRUE(tt_path_validate("/tmp", "/tmp"));
+    char *tmpdir = tt_test_tmpdir();
+    TT_ASSERT_NOT_NULL(tmpdir);
+    TT_ASSERT_TRUE(tt_path_validate(tmpdir, tmpdir));
+    tt_test_rmdir(tmpdir);
+    free(tmpdir);
 }
 
 TT_TEST(test_pv_validate_inside_root)
@@ -25,7 +29,11 @@ TT_TEST(test_pv_validate_inside_root)
     char *tmpdir = tt_test_tmpdir();
     TT_ASSERT_NOT_NULL(tmpdir);
 
-    TT_ASSERT_TRUE(tt_path_validate(tmpdir, "/tmp"));
+    char child[512];
+    snprintf(child, sizeof(child), "%s/inner", tmpdir);
+    tt_mkdir_p(child);
+
+    TT_ASSERT_TRUE(tt_path_validate(child, tmpdir));
 
     tt_test_rmdir(tmpdir);
     free(tmpdir);
@@ -33,17 +41,37 @@ TT_TEST(test_pv_validate_inside_root)
 
 TT_TEST(test_pv_validate_outside_root)
 {
-    TT_ASSERT_FALSE(tt_path_validate("/etc", "/tmp"));
+    char *dir_a = tt_test_tmpdir();
+    char *dir_b = tt_test_tmpdir();
+    TT_ASSERT_NOT_NULL(dir_a);
+    TT_ASSERT_NOT_NULL(dir_b);
+    TT_ASSERT_FALSE(tt_path_validate(dir_a, dir_b));
+    tt_test_rmdir(dir_a);
+    tt_test_rmdir(dir_b);
+    free(dir_a);
+    free(dir_b);
 }
 
 TT_TEST(test_pv_validate_nonexistent_path)
 {
-    TT_ASSERT_FALSE(tt_path_validate("/nonexistent_path_xyz_test", "/tmp"));
+    char *tmpdir = tt_test_tmpdir();
+    TT_ASSERT_NOT_NULL(tmpdir);
+    char fake[512];
+    snprintf(fake, sizeof(fake), "%s/nonexistent_xyz_test", tmpdir);
+    TT_ASSERT_FALSE(tt_path_validate(fake, tmpdir));
+    tt_test_rmdir(tmpdir);
+    free(tmpdir);
 }
 
 TT_TEST(test_pv_validate_traversal_attempt)
 {
-    TT_ASSERT_FALSE(tt_path_validate("/tmp/../etc/passwd", "/tmp"));
+    char *tmpdir = tt_test_tmpdir();
+    TT_ASSERT_NOT_NULL(tmpdir);
+    char traversal[512];
+    snprintf(traversal, sizeof(traversal), "%s/../../../etc/passwd", tmpdir);
+    TT_ASSERT_FALSE(tt_path_validate(traversal, tmpdir));
+    tt_test_rmdir(tmpdir);
+    free(tmpdir);
 }
 
 TT_TEST(test_pv_validate_subdirectory)
@@ -55,7 +83,7 @@ TT_TEST(test_pv_validate_subdirectory)
     snprintf(subdir, sizeof(subdir), "%s/sub", tmpdir);
     tt_mkdir_p(subdir);
 
-    TT_ASSERT_TRUE(tt_path_validate(subdir, "/tmp"));
+    TT_ASSERT_TRUE(tt_path_validate(subdir, tmpdir));
 
     tt_test_rmdir(tmpdir);
     free(tmpdir);
@@ -63,22 +91,34 @@ TT_TEST(test_pv_validate_subdirectory)
 
 TT_TEST(test_pv_validate_both_nonexistent)
 {
-    TT_ASSERT_FALSE(tt_path_validate("/nonexistent_a", "/nonexistent_b"));
+    TT_ASSERT_FALSE(tt_path_validate("/nonexistent_a_82719", "/nonexistent_b_82719"));
 }
 
 TT_TEST(test_pv_validate_root_nonexistent)
 {
-    TT_ASSERT_FALSE(tt_path_validate("/tmp", "/nonexistent_root_test"));
+    char *tmpdir = tt_test_tmpdir();
+    TT_ASSERT_NOT_NULL(tmpdir);
+    TT_ASSERT_FALSE(tt_path_validate(tmpdir, "/nonexistent_root_test_82719"));
+    tt_test_rmdir(tmpdir);
+    free(tmpdir);
 }
 
 TT_TEST(test_pv_validate_null_path)
 {
-    TT_ASSERT_FALSE(tt_path_validate(NULL, "/tmp"));
+    char *tmpdir = tt_test_tmpdir();
+    TT_ASSERT_NOT_NULL(tmpdir);
+    TT_ASSERT_FALSE(tt_path_validate(NULL, tmpdir));
+    tt_test_rmdir(tmpdir);
+    free(tmpdir);
 }
 
 TT_TEST(test_pv_validate_null_root)
 {
-    TT_ASSERT_FALSE(tt_path_validate("/tmp", NULL));
+    char *tmpdir = tt_test_tmpdir();
+    TT_ASSERT_NOT_NULL(tmpdir);
+    TT_ASSERT_FALSE(tt_path_validate(tmpdir, NULL));
+    tt_test_rmdir(tmpdir);
+    free(tmpdir);
 }
 
 TT_TEST(test_pv_symlink_escape_regular_file)
@@ -98,7 +138,11 @@ TT_TEST(test_pv_symlink_escape_regular_file)
 
 TT_TEST(test_pv_symlink_escape_nonexistent)
 {
-    TT_ASSERT_FALSE(tt_is_symlink_escape("/nonexistent_xyz", "/tmp"));
+    char *tmpdir = tt_test_tmpdir();
+    TT_ASSERT_NOT_NULL(tmpdir);
+    TT_ASSERT_FALSE(tt_is_symlink_escape("/nonexistent_xyz_82719", tmpdir));
+    tt_test_rmdir(tmpdir);
+    free(tmpdir);
 }
 
 #ifndef TT_PLATFORM_WINDOWS
